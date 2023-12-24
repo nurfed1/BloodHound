@@ -203,11 +203,20 @@ type GPLink struct {
 	IsEnforced bool
 }
 
+type GPOChangesAPIResult struct {
+    LocalAdmins        []TypedPrincipal
+    RemoteDesktopUsers []TypedPrincipal
+    DcomUsers          []TypedPrincipal
+    PSRemoteUsers      []TypedPrincipal
+    AffectedComputers  []TypedPrincipal
+}
+
 type Domain struct {
 	IngestBase
 	ChildObjects []TypedPrincipal
 	Trusts       []Trust
 	Links        []GPLink
+	GPOChanges   GPOChangesAPIResult
 }
 
 type SessionAPIResult struct {
@@ -265,4 +274,5 @@ type OU struct {
 	IngestBase
 	ChildObjects []TypedPrincipal
 	Links        []GPLink
+	GPOChanges   GPOChangesAPIResult
 }

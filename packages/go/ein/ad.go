@@ -649,3 +649,55 @@ func ParseDCRegistryData(computer Computer) IngestibleNode {
 		Label:       ad.Computer,
 	}
 }
+
+func ParseGPOChanges(GPOChanges GPOChangesAPIResult) []IngestibleRelationship {
+	converted := make([]IngestibleRelationship, 0)
+
+	for _, computer := range GPOChanges.AffectedComputers {
+		for _, member := range GPOChanges.LocalAdmins {
+			converted = append(converted, IngestibleRelationship {
+				Source:     member.ObjectIdentifier,
+				SourceType: member.Kind(),
+				TargetType: ad.Computer,
+				Target:     computer.ObjectIdentifier,
+				RelProps:   map[string]any{},
+				RelType:    ad.AdminTo,
+			})
+		}
+
+		for _, member := range GPOChanges.RemoteDesktopUsers {
+			converted = append(converted, IngestibleRelationship {
+				Source:     member.ObjectIdentifier,
+				SourceType: member.Kind(),
+				TargetType: ad.Computer,
+				Target:     computer.ObjectIdentifier,
+				RelProps:   map[string]any{},
+				RelType:    ad.CanRDP,
+			})
+		}
+
+		for _, member := range GPOChanges.DcomUsers {
+			converted = append(converted, IngestibleRelationship {
+				Source:     member.ObjectIdentifier,
+				SourceType: member.Kind(),
+				TargetType: ad.Computer,
+				Target:     computer.ObjectIdentifier,
+				RelProps:   map[string]any{},
+				RelType:    ad.ExecuteDCOM,
+			})
+		}
+
+		for _, member := range GPOChanges.PSRemoteUsers {
+			converted = append(converted, IngestibleRelationship {
+				Source:     member.ObjectIdentifier,
+				SourceType: member.Kind(),
+				TargetType: ad.Computer,
+				Target:     computer.ObjectIdentifier,
+				RelProps:   map[string]any{},
+				RelType:    ad.CanPSRemote,
+			})
+		}
+	}
+
+	return converted
+}

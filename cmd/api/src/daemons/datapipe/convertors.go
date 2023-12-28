@@ -119,7 +119,10 @@ func convertDomainData(data []ein.Domain) ConvertedData {
 		converted.RelProps = append(converted.RelProps, domainTrustData.TrustRelationships...)
 		converted.NodeProps = append(converted.NodeProps, domainTrustData.ExtraNodeProps...)
 
-		converted.RelProps = append(converted.RelProps, ein.ParseGPOChanges(domain.GPOChanges)...)
+		parsedLocalGroupData := ein.ParseGPOChanges(domain.GPOChanges)
+		converted.RelProps = append(converted.RelProps, parsedLocalGroupData.Relationships...)
+		converted.NodeProps = append(converted.NodeProps, parsedLocalGroupData.Nodes...)
+
 	}
 
 	return converted
@@ -150,7 +153,10 @@ func convertOUData(data []ein.OU) ConvertedData {
 			converted.RelProps = append(converted.RelProps, ein.ParseChildObjects(ou.ChildObjects, ou.ObjectIdentifier, ad.OU)...)
 		}
 
-		converted.RelProps = append(converted.RelProps, ein.ParseGPOChanges(ou.GPOChanges)...)
+		parsedLocalGroupData := ein.ParseGPOChanges(ou.GPOChanges)
+		converted.RelProps = append(converted.RelProps, parsedLocalGroupData.Relationships...)
+		converted.NodeProps = append(converted.NodeProps, parsedLocalGroupData.Nodes...)
+
 	}
 
 	return converted

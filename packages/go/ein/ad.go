@@ -18,6 +18,7 @@ package ein
 
 import (
 	"strings"
+	"fmt"
 
 	"github.com/specterops/bloodhound/analysis"
 	"github.com/specterops/bloodhound/dawgs/graph"
@@ -650,54 +651,95 @@ func ParseDCRegistryData(computer Computer) IngestibleNode {
 	}
 }
 
-func ParseGPOChanges(GPOChanges GPOChangesAPIResult) []IngestibleRelationship {
-	converted := make([]IngestibleRelationship, 0)
+func parseGPOLocalGroup(parsedData *ParsedLocalGroupData, groupName string, computer TypedPrincipal, member TypedPrincipal) {
+	parsedData.Nodes = append(parsedData.Nodes, IngestibleNode{
+		ObjectID: groupName,
+		PropertyMap: map[string]any{
+			"name": groupName,
+		},
+		Label: ad.LocalGroup,
+	})
+
+	parsedData.Relationships = append(parsedData.Relationships, IngestibleRelationship{
+		Source:     groupName,
+		SourceType: ad.LocalGroup,
+		TargetType: ad.Computer,
+		Target:     computer.ObjectIdentifier,
+		RelProps:   map[string]any{"isacl": false},
+		RelType:    ad.LocalToComputer,
+	})
+
+	parsedData.Relationships = append(parsedData.Relationships, IngestibleRelationship{
+		Source:     member.ObjectIdentifier,
+		SourceType: member.Kind(),
+		TargetType: ad.LocalGroup,
+		Target:     groupName,
+		RelProps:   map[string]any{"isacl": false},
+		RelType:    ad.MemberOfLocalGroup,
+	})
+
+}
+
+func ParseGPOChanges(GPOChanges GPOChangesAPIResult) ParsedLocalGroupData {
+	parsedData := ParsedLocalGroupData{}
 
 	for _, computer := range GPOChanges.AffectedComputers {
 		for _, member := range GPOChanges.LocalAdmins {
-			converted = append(converted, IngestibleRelationship {
-				Source:     member.ObjectIdentifier,
-				SourceType: member.Kind(),
-				TargetType: ad.Computer,
-				Target:     computer.ObjectIdentifier,
-				RelProps:   map[string]any{},
-				RelType:    ad.AdminTo,
-			})
+			groupName := fmt.Sprintf("ADMINISTRATORS@%s-544", computer.ObjectIdentifier)
+
+			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			// converted = append(converted, IngestibleRelationship {
+			// 	Source:     member.ObjectIdentifier,
+			// 	SourceType: member.Kind(),
+			// 	TargetType: ad.Computer,
+			// 	Target:     computer.ObjectIdentifier,
+			// 	RelProps:   map[string]any{},
+			// 	RelType:    ad.AdminTo,
+			// })
 		}
 
 		for _, member := range GPOChanges.RemoteDesktopUsers {
-			converted = append(converted, IngestibleRelationship {
-				Source:     member.ObjectIdentifier,
-				SourceType: member.Kind(),
-				TargetType: ad.Computer,
-				Target:     computer.ObjectIdentifier,
-				RelProps:   map[string]any{},
-				RelType:    ad.CanRDP,
-			})
+			groupName := fmt.Sprintf("REMOTEDESKTOPUSERS@%s-555", computer.ObjectIdentifier)
+
+			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			// converted = append(converted, IngestibleRelationship {
+			// 	Source:     member.ObjectIdentifier,
+			// 	SourceType: member.Kind(),
+			// 	TargetType: ad.Computer,
+			// 	Target:     computer.ObjectIdentifier,
+			// 	RelProps:   map[string]any{},
+			// 	RelType:    ad.CanRDP,
+			// })
 		}
 
 		for _, member := range GPOChanges.DcomUsers {
-			converted = append(converted, IngestibleRelationship {
-				Source:     member.ObjectIdentifier,
-				SourceType: member.Kind(),
-				TargetType: ad.Computer,
-				Target:     computer.ObjectIdentifier,
-				RelProps:   map[string]any{},
-				RelType:    ad.ExecuteDCOM,
-			})
+			groupName := fmt.Sprintf("DISTRIBUTEDCOMUSERS@%s-562", computer.ObjectIdentifier)
+
+			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			// converted = append(converted, IngestibleRelationship {
+			// 	Source:     member.ObjectIdentifier,
+			// 	SourceType: member.Kind(),
+			// 	TargetType: ad.Computer,
+			// 	Target:     computer.ObjectIdentifier,
+			// 	RelProps:   map[string]any{},
+			// 	RelType:    ad.ExecuteDCOM,
+			// })
 		}
 
 		for _, member := range GPOChanges.PSRemoteUsers {
-			converted = append(converted, IngestibleRelationship {
-				Source:     member.ObjectIdentifier,
-				SourceType: member.Kind(),
-				TargetType: ad.Computer,
-				Target:     computer.ObjectIdentifier,
-				RelProps:   map[string]any{},
-				RelType:    ad.CanPSRemote,
-			})
+			groupName := fmt.Sprintf("REMOTEMANAGEMENTUSERS@%s-580", computer.ObjectIdentifier)
+
+			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			// converted = append(converted, IngestibleRelationship {
+			// 	Source:     member.ObjectIdentifier,
+			// 	SourceType: member.Kind(),
+			// 	TargetType: ad.Computer,
+			// 	Target:     computer.ObjectIdentifier,
+			// 	RelProps:   map[string]any{},
+			// 	RelType:    ad.CanPSRemote,
+			// })
 		}
 	}
 
-	return converted
+	return parsedData
 }

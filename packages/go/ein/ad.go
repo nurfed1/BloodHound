@@ -651,9 +651,9 @@ func ParseDCRegistryData(computer Computer) IngestibleNode {
 	}
 }
 
-func parseGPOLocalGroup(parsedData *ParsedLocalGroupData, groupName string, computer TypedPrincipal, member TypedPrincipal) {
+func parseGPOLocalGroup(parsedData *ParsedLocalGroupData, objectID string, groupName string, computer TypedPrincipal, member TypedPrincipal) {
 	parsedData.Nodes = append(parsedData.Nodes, IngestibleNode{
-		ObjectID: groupName,
+		ObjectID: objectID,
 		PropertyMap: map[string]any{
 			"name": groupName,
 		},
@@ -661,7 +661,7 @@ func parseGPOLocalGroup(parsedData *ParsedLocalGroupData, groupName string, comp
 	})
 
 	parsedData.Relationships = append(parsedData.Relationships, IngestibleRelationship{
-		Source:     groupName,
+		Source:     objectID,
 		SourceType: ad.LocalGroup,
 		TargetType: ad.Computer,
 		Target:     computer.ObjectIdentifier,
@@ -673,7 +673,7 @@ func parseGPOLocalGroup(parsedData *ParsedLocalGroupData, groupName string, comp
 		Source:     member.ObjectIdentifier,
 		SourceType: member.Kind(),
 		TargetType: ad.LocalGroup,
-		Target:     groupName,
+		Target:     objectID,
 		RelProps:   map[string]any{"isacl": false},
 		RelType:    ad.MemberOfLocalGroup,
 	})
@@ -685,9 +685,10 @@ func ParseGPOChanges(GPOChanges GPOChangesAPIResult) ParsedLocalGroupData {
 
 	for _, computer := range GPOChanges.AffectedComputers {
 		for _, member := range GPOChanges.LocalAdmins {
+			objectID := fmt.Sprintf("%s-544", computer.ObjectIdentifier)
 			groupName := fmt.Sprintf("ADMINISTRATORS@%s-544", computer.ObjectIdentifier)
 
-			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			parseGPOLocalGroup(&parsedData, objectID, groupName, computer, member)
 			// converted = append(converted, IngestibleRelationship {
 			// 	Source:     member.ObjectIdentifier,
 			// 	SourceType: member.Kind(),
@@ -699,9 +700,10 @@ func ParseGPOChanges(GPOChanges GPOChangesAPIResult) ParsedLocalGroupData {
 		}
 
 		for _, member := range GPOChanges.RemoteDesktopUsers {
+			objectID := fmt.Sprintf("%s-544", computer.ObjectIdentifier)
 			groupName := fmt.Sprintf("REMOTEDESKTOPUSERS@%s-555", computer.ObjectIdentifier)
 
-			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			parseGPOLocalGroup(&parsedData, objectID, groupName, computer, member)
 			// converted = append(converted, IngestibleRelationship {
 			// 	Source:     member.ObjectIdentifier,
 			// 	SourceType: member.Kind(),
@@ -713,9 +715,10 @@ func ParseGPOChanges(GPOChanges GPOChangesAPIResult) ParsedLocalGroupData {
 		}
 
 		for _, member := range GPOChanges.DcomUsers {
+			objectID := fmt.Sprintf("%s-544", computer.ObjectIdentifier)
 			groupName := fmt.Sprintf("DISTRIBUTEDCOMUSERS@%s-562", computer.ObjectIdentifier)
 
-			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			parseGPOLocalGroup(&parsedData, objectID, groupName, computer, member)
 			// converted = append(converted, IngestibleRelationship {
 			// 	Source:     member.ObjectIdentifier,
 			// 	SourceType: member.Kind(),
@@ -727,9 +730,10 @@ func ParseGPOChanges(GPOChanges GPOChangesAPIResult) ParsedLocalGroupData {
 		}
 
 		for _, member := range GPOChanges.PSRemoteUsers {
+			objectID := fmt.Sprintf("%s-544", computer.ObjectIdentifier)
 			groupName := fmt.Sprintf("REMOTEMANAGEMENTUSERS@%s-580", computer.ObjectIdentifier)
 
-			parseGPOLocalGroup(&parsedData, groupName, computer, member)
+			parseGPOLocalGroup(&parsedData, objectID, groupName, computer, member)
 			// converted = append(converted, IngestibleRelationship {
 			// 	Source:     member.ObjectIdentifier,
 			// 	SourceType: member.Kind(),

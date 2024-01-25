@@ -19,8 +19,11 @@ package ad
 import (
 	"context"
 	"fmt"
+	"github.com/specterops/bloodhound/analysis"
+	"github.com/specterops/bloodhound/dawgs/traversal"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/specterops/bloodhound/analysis/impact"
@@ -294,47 +297,55 @@ func createOrUpdateWellKnownLink(tx graph.Transaction, startNode *graph.Node, en
 	}
 }
 
-func CalculateCrossProductBitmaps(firstNodeSet, secondNodeSet cardinality.Duplex[uint32], groupExpansions impact.PathAggregator) cardinality.Duplex[uint32] {
+func CalculateCrossProductNodeSets(groupExpansions impact.PathAggregator, nodeSets ...[]*graph.Node) cardinality.Duplex[uint32] {
+	if len(nodeSets) < 2 {
+		log.Errorf("cross products require at least 2 nodesets")
+		return cardinality.NewBitmap32()
+	}
+
 	//The intention is that the node sets being passed into this function contain all the first degree principals for control
 	var (
-		resultEntities   = cardinality.NewBitmap32()
-		firstSetUnroll   = cardinality.NewBitmap32()
-		secondSetUnroll  = cardinality.NewBitmap32()
-		cardinalityCache = map[uint32]uint64{}
+		resultEntities = cardinality.NewBitmap32()
+		unrollSet      = cardinality.NewBitmap32()
+		checkSet       = cardinality.NewBitmap32()
 	)
 
-	//Unroll all groups in our first nodeset into a bitmap
-	firstNodeSet.Each(func(id uint32) (bool, error) {
-		firstSetUnroll.Add(id)
-		idCardinality := groupExpansions.Cardinality(id)
-		idCardinalityCount := idCardinality.Cardinality()
-		if idCardinalityCount > 0 {
-			cardinalityCache[id] = idCardinalityCount
-			firstSetUnroll.Or(idCardinality.(cardinality.Duplex[uint32]))
+	//We need to fully unroll node sets 1-X into a single bitmap which we will check against
+	for _, entity := range nodeSets[1] {
+		checkSet.Add(entity.ID.Uint32())
+		if entity.Kinds.ContainsOneOf(ad.Group) {
+			checkSet.Or(groupExpansions.Cardinality(entity.ID.Uint32()).(cardinality.Duplex[uint32]))
 		}
+	}
 
-		return true, nil
-	})
-
-	secondNodeSet.Each(func(id uint32) (bool, error) {
-		if firstSetUnroll.Contains(id) {
-			resultEntities.Add(id)
-		} else {
-			idCardinality := groupExpansions.Cardinality(id)
-			idCardinalityCount := idCardinality.Cardinality()
-			if idCardinalityCount > 0 {
-				cardinalityCache[id] = idCardinalityCount
-				secondSetUnroll.Or(idCardinality.(cardinality.Duplex[uint32]))
+	if len(nodeSets) > 2 {
+		for i := 2; i < len(nodeSets); i++ {
+			tempSet := cardinality.NewBitmap32()
+			for _, entity := range nodeSets[i] {
+				tempSet.Add(entity.ID.Uint32())
+				if entity.Kinds.ContainsOneOf(ad.Group) {
+					tempSet.Or(groupExpansions.Cardinality(entity.ID.Uint32()).(cardinality.Duplex[uint32]))
+				}
 			}
+			checkSet.And(tempSet)
 		}
-		return true, nil
-	})
+	}
+
+	//checkSet should have all the valid principals from all other sets at this point
+	//Check first degree principals in our reference set first
+	for _, entity := range nodeSets[0] {
+		if checkSet.Contains(entity.ID.Uint32()) {
+			resultEntities.Add(entity.ID.Uint32())
+		} else if entity.Kinds.ContainsOneOf(ad.Group, ad.LocalGroup) {
+			unrollSet.Or(groupExpansions.Cardinality(entity.ID.Uint32()).(cardinality.Duplex[uint32]))
+		}
+	}
 
 	tempMap := map[uint32]uint64{}
 	//Find all the groups in our secondary targets and map them to their cardinality in our expansions
 	//Saving off to a map to prevent multiple lookups on the expansions
 	//Unhandled error here is irrelevant, we can never return an error
-	secondSetUnroll.Each(func(id uint32) (bool, error) {
+	unrollSet.Each(func(id uint32) (bool, error) {
 		//If group expansions contains this ID and its cardinality is > 0, it's a group/localgroup
 		idCardinality := groupExpansions.Cardinality(id).Cardinality()
 		if idCardinality > 0 {
@@ -359,22 +370,22 @@ func CalculateCrossProductBitmaps(firstNodeSet, secondNodeSet cardinality.Duplex
 
 	for _, groupId := range keys {
 		//If the set doesn't contain our key, it means that we've already encapsulated this group in a previous shortcut so skip it
-		if !secondSetUnroll.Contains(groupId) {
+		if !unrollSet.Contains(groupId) {
 			continue
 		}
-		if firstSetUnroll.Contains(groupId) {
+		if checkSet.Contains(groupId) {
 			//If this entity is a cross product, add it to result entities, remove the group id from the second set and xor the group's membership with the result set
 			resultEntities.Add(groupId)
-			secondSetUnroll.Remove(groupId)
-			secondSetUnroll.Xor(groupExpansions.Cardinality(groupId).(cardinality.Duplex[uint32]))
+			unrollSet.Remove(groupId)
+			unrollSet.Xor(groupExpansions.Cardinality(groupId).(cardinality.Duplex[uint32]))
 		} else {
 			//If this isn't a match, remove it from the second set to ensure we don't check it again, but leave its membership
-			secondSetUnroll.Remove(groupId)
+			unrollSet.Remove(groupId)
 		}
 	}
 
-	secondSetUnroll.Each(func(remainder uint32) (bool, error) {
-		if firstSetUnroll.Contains(remainder) {
+	unrollSet.Each(func(remainder uint32) (bool, error) {
+		if checkSet.Contains(remainder) {
 			resultEntities.Add(remainder)
 		}
 
@@ -384,37 +395,75 @@ func CalculateCrossProductBitmaps(firstNodeSet, secondNodeSet cardinality.Duplex
 	return resultEntities
 }
 
-func CalculateCrossProductNodeSets(firstNodeSet, secondNodeSet []*graph.Node, groupExpansions impact.PathAggregator) cardinality.Duplex[uint32] {
+func CalculateCrossProductBitmaps(groupExpansions impact.PathAggregator, nodeSets ...cardinality.Duplex[uint32]) cardinality.Duplex[uint32] {
+	if len(nodeSets) < 2 {
+		log.Errorf("cross products require at least 2 nodesets")
+		return cardinality.NewBitmap32()
+	}
+
 	//The intention is that the node sets being passed into this function contain all the first degree principals for control
 	var (
-		resultEntities  = cardinality.NewBitmap32()
-		firstSetUnroll  = cardinality.NewBitmap32()
-		secondSetUnroll = cardinality.NewBitmap32()
+		resultEntities   = cardinality.NewBitmap32()
+		unrollSet        = cardinality.NewBitmap32()
+		cardinalityCache = map[uint32]uint64{}
+		checkSet         = cardinality.NewBitmap32()
 	)
 
-	//Unroll all groups in our first nodeset into a bitmap
-	for _, entity := range firstNodeSet {
-		firstSetUnroll.Add(entity.ID.Uint32())
-		if entity.Kinds.ContainsOneOf(ad.Group) {
-			firstSetUnroll.Or(groupExpansions.Cardinality(entity.ID.Uint32()).(cardinality.Duplex[uint32]))
+	//Take the second of our node sets and unroll it all into a single bitmap
+	nodeSets[1].Each(func(id uint32) (bool, error) {
+		checkSet.Add(id)
+		idCardinality := groupExpansions.Cardinality(id)
+		idCardinalityCount := getCardinalityCount(id, idCardinality, cardinalityCache)
+		cardinalityCache[id] = idCardinalityCount
+		if idCardinalityCount > 0 {
+			checkSet.Or(idCardinality.(cardinality.Duplex[uint32]))
+		}
+
+		return true, nil
+	})
+
+	//If we have more than 2 bitmaps, we need to AND everything together
+	if len(nodeSets) > 2 {
+		for i := 2; i < len(nodeSets); i++ {
+			tempSet := cardinality.NewBitmap32()
+			nodeSets[i].Each(func(id uint32) (bool, error) {
+				tempSet.Add(id)
+				idCardinality := groupExpansions.Cardinality(id)
+				idCardinalityCount := getCardinalityCount(id, idCardinality, cardinalityCache)
+				cardinalityCache[id] = idCardinalityCount
+				if idCardinalityCount > 0 {
+					tempSet.Or(idCardinality.(cardinality.Duplex[uint32]))
+				}
+
+				return true, nil
+			})
+
+			checkSet.And(tempSet)
 		}
 	}
 
-	//Check all our first degree entities directly for matches
-	for _, entity := range secondNodeSet {
-		if firstSetUnroll.Contains(entity.ID.Uint32()) {
-			resultEntities.Add(entity.ID.Uint32())
-		} else if entity.Kinds.ContainsOneOf(ad.Group, ad.LocalGroup) {
-			//If our entity doesn't match directly, but is a group or local group we want to expand its membership into a map
-			secondSetUnroll.Or(groupExpansions.Cardinality(entity.ID.Uint32()).(cardinality.Duplex[uint32]))
+	//checkSet should have all the valid principals from all other sets at this point
+	//Check first degree principals in our reference set first
+	nodeSets[0].Each(func(id uint32) (bool, error) {
+		if checkSet.Contains(id) {
+			resultEntities.Add(id)
+		} else {
+			idCardinality := groupExpansions.Cardinality(id)
+			idCardinalityCount := getCardinalityCount(id, idCardinality, cardinalityCache)
+			cardinalityCache[id] = idCardinalityCount
+			if idCardinalityCount > 0 {
+				unrollSet.Or(idCardinality.(cardinality.Duplex[uint32]))
+			}
 		}
-	}
+
+		return true, nil
+	})
 
 	tempMap := map[uint32]uint64{}
 	//Find all the groups in our secondary targets and map them to their cardinality in our expansions
 	//Saving off to a map to prevent multiple lookups on the expansions
 	//Unhandled error here is irrelevant, we can never return an error
-	secondSetUnroll.Each(func(id uint32) (bool, error) {
+	unrollSet.Each(func(id uint32) (bool, error) {
 		//If group expansions contains this ID and its cardinality is > 0, it's a group/localgroup
 		idCardinality := groupExpansions.Cardinality(id).Cardinality()
 		if idCardinality > 0 {
@@ -439,22 +488,22 @@ func CalculateCrossProductNodeSets(firstNodeSet, secondNodeSet []*graph.Node, gr
 
 	for _, groupId := range keys {
 		//If the set doesn't contain our key, it means that we've already encapsulated this group in a previous shortcut so skip it
-		if !secondSetUnroll.Contains(groupId) {
+		if !unrollSet.Contains(groupId) {
 			continue
 		}
-		if firstSetUnroll.Contains(groupId) {
+		if checkSet.Contains(groupId) {
 			//If this entity is a cross product, add it to result entities, remove the group id from the second set and xor the group's membership with the result set
 			resultEntities.Add(groupId)
-			secondSetUnroll.Remove(groupId)
-			secondSetUnroll.Xor(groupExpansions.Cardinality(groupId).(cardinality.Duplex[uint32]))
+			unrollSet.Remove(groupId)
+			unrollSet.Xor(groupExpansions.Cardinality(groupId).(cardinality.Duplex[uint32]))
 		} else {
 			//If this isn't a match, remove it from the second set to ensure we don't check it again, but leave its membership
-			secondSetUnroll.Remove(groupId)
+			unrollSet.Remove(groupId)
 		}
 	}
 
-	secondSetUnroll.Each(func(remainder uint32) (bool, error) {
-		if firstSetUnroll.Contains(remainder) {
+	unrollSet.Each(func(remainder uint32) (bool, error) {
+		if checkSet.Contains(remainder) {
 			resultEntities.Add(remainder)
 		}
 
@@ -462,6 +511,15 @@ func CalculateCrossProductNodeSets(firstNodeSet, secondNodeSet []*graph.Node, gr
 	})
 
 	return resultEntities
+}
+
+func getCardinalityCount(id uint32, expansions cardinality.Provider[uint32], cardinalityCache map[uint32]uint64) uint64 {
+	if idCardinality, ok := cardinalityCache[id]; ok {
+		return idCardinality
+	} else {
+		idCardinality = expansions.Cardinality()
+		return idCardinality
+	}
 }
 
 func GetEdgeCompositionPath(ctx context.Context, db graph.Database, edge *graph.Relationship) (graph.PathSet, error) {
@@ -474,7 +532,13 @@ func GetEdgeCompositionPath(ctx context.Context, db graph.Database, edge *graph.
 				pathSet = results
 			}
 		} else if edge.Kind == ad.ADCSESC1 {
-			if results, err := getADCSESC1EdgeComposition(tx, edge); err != nil {
+			if results, err := GetADCSESC1EdgeComposition(ctx, db, edge); err != nil {
+				return err
+			} else {
+				pathSet = results
+			}
+		} else if edge.Kind == ad.ADCSESC3 {
+			if results, err := GetADCSESC3EdgeComposition(ctx, db, edge); err != nil {
 				return err
 			} else {
 				pathSet = results
@@ -484,83 +548,390 @@ func GetEdgeCompositionPath(ctx context.Context, db graph.Database, edge *graph.
 	})
 }
 
-func getADCSESC1EdgeComposition(tx graph.Transaction, edge *graph.Relationship) (graph.PathSet, error) {
-	finalPaths := graph.NewPathSet()
-	//Grab the start node as well as the target domain node
-	if startNode, targetDomainNode, err := ops.FetchRelationshipNodes(tx, edge); err != nil {
-		return finalPaths, err
-	} else {
-		//Find cert templates that we have control over using enroll/acls
-		if pathsToTemplates, err := ops.TraversePaths(tx, ops.TraversalPlan{
-			Root:      startNode,
-			Direction: graph.DirectionOutbound,
-			BranchQuery: func() graph.Criteria {
-				return query.KindIn(query.Relationship(), ad.Enroll, ad.GenericAll, ad.AllExtendedRights, ad.MemberOf)
-			},
-			DescentFilter: OutboundControlDescentFilter,
-			PathFilter: func(ctx *ops.TraversalContext, segment *graph.PathSegment) bool {
-				node := segment.Node
-				if !node.Kinds.ContainsOneOf(ad.CertTemplate) {
-					return false
-				} else if props, err := getValidatePublishedCertTemplateForEsc1PropertyValues(node); err != nil {
-					log.Errorf("Error getting props for certtemplate %d: %w", node.ID, err)
-				} else if !validatePublishedCertTemplateForEsc1(props) {
-					return false
+func ADCSESC3Path1Pattern(domainId graph.ID, enterpriseCAs cardinality.Duplex[uint32]) traversal.PatternContinuation {
+	return traversal.NewPattern().
+		Outbound(query.And(
+			query.Kind(query.Relationship(), ad.MemberOf),
+			query.Kind(query.End(), ad.Group),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.GenericAll, ad.Enroll, ad.AllExtendedRights),
+			query.Kind(query.End(), ad.CertTemplate),
+			query.And(
+				query.Equals(query.EndProperty(ad.RequiresManagerApproval.String()), false),
+				query.Or(
+					query.Equals(query.EndProperty(ad.SchemaVersion.String()), 1),
+					query.And(
+						query.GreaterThan(query.EndProperty(ad.SchemaVersion.String()), 1),
+						query.Equals(query.EndProperty(ad.AuthorizedSignatures.String()), 0),
+					),
+				),
+			),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.PublishedTo),
+			query.InIDs(query.End(), cardinality.DuplexToGraphIDs(enterpriseCAs)...),
+			query.Kind(query.End(), ad.EnterpriseCA),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.IssuedSignedBy, ad.EnterpriseCAFor),
+			query.Kind(query.End(), ad.RootCA),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.RootCAFor),
+			query.Equals(query.EndID(), domainId),
+		))
+}
+
+func ADCSESC3Path2Pattern(domainId graph.ID, enterpriseCAs, candidateTemplates cardinality.Duplex[uint32]) traversal.PatternContinuation {
+	return traversal.NewPattern().
+		Outbound(query.And(
+			query.Kind(query.Relationship(), ad.MemberOf),
+			query.Kind(query.End(), ad.Group),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.GenericAll, ad.Enroll, ad.AllExtendedRights),
+			query.KindIn(query.End(), ad.CertTemplate),
+			query.Equals(query.EndProperty(ad.AuthenticationEnabled.String()), true),
+			query.Equals(query.EndProperty(ad.RequiresManagerApproval.String()), false),
+			query.InIDs(query.EndID(), cardinality.DuplexToGraphIDs(candidateTemplates)...),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.PublishedTo),
+			query.KindIn(query.End(), ad.EnterpriseCA),
+			query.InIDs(query.End(), cardinality.DuplexToGraphIDs(enterpriseCAs)...))).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.TrustedForNTAuth),
+			query.Kind(query.End(), ad.NTAuthStore),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.NTAuthStoreFor),
+			query.Equals(query.EndID(), domainId),
+		))
+}
+
+func ADCSESC3Path3Pattern() traversal.PatternContinuation {
+	return traversal.NewPattern().
+		Outbound(query.And(
+			query.Kind(query.Relationship(), ad.MemberOf),
+			query.Kind(query.End(), ad.Group),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.End(), ad.EnterpriseCA),
+			query.KindIn(query.Relationship(), ad.Enroll),
+		))
+}
+
+func GetADCSESC3EdgeComposition(ctx context.Context, db graph.Database, edge *graph.Relationship) (graph.PathSet, error) {
+	var (
+		startNode *graph.Node
+
+		traversalInst           = traversal.New(db, analysis.MaximumDatabaseParallelWorkers)
+		paths                   = graph.PathSet{}
+		path1CandidateSegments  = map[graph.ID][]*graph.PathSegment{}
+		path2CandidateSegments  = map[graph.ID][]*graph.PathSegment{}
+		lock                    = &sync.Mutex{}
+		path1CertTemplates      = cardinality.NewBitmap32()
+		path2CertTemplates      = cardinality.NewBitmap32()
+		enterpriseCANodes       = cardinality.NewBitmap32()
+		enterpriseCASegments    = map[graph.ID][]*graph.PathSegment{}
+		path2CandidateTemplates = cardinality.NewBitmap32()
+		enrollOnBehalfOfPaths   graph.PathSet
+	)
+
+	if err := db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+		if node, err := ops.FetchNode(tx, edge.StartID); err != nil {
+			return err
+		} else {
+			startNode = node
+			return nil
+		}
+	}); err != nil {
+		return nil, err
+	}
+
+	//Start by fetching all EnterpriseCA nodes that our user has Enroll rights on via group membership or directly (P4/P5)
+	if err := traversalInst.BreadthFirst(ctx, traversal.Plan{
+		Root: startNode,
+		Driver: ADCSESC3Path3Pattern().Do(func(terminal *graph.PathSegment) error {
+			enterpriseCANode := terminal.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.EnterpriseCA)
+			})
+
+			lock.Lock()
+			enterpriseCASegments[enterpriseCANode.ID] = append(enterpriseCASegments[enterpriseCANode.ID], terminal)
+			enterpriseCANodes.Add(enterpriseCANode.ID.Uint32())
+			lock.Unlock()
+
+			return nil
+		}),
+	}); err != nil {
+		return nil, err
+	}
+
+	//Use the enterprise CA nodes we gathered to filter the first set of paths for P1
+	if err := traversalInst.BreadthFirst(ctx, traversal.Plan{
+		Root: startNode,
+		Driver: ADCSESC3Path1Pattern(edge.EndID, enterpriseCANodes).Do(func(terminal *graph.PathSegment) error {
+			certTemplateNode := terminal.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.CertTemplate)
+			})
+
+			lock.Lock()
+			path1CandidateSegments[certTemplateNode.ID] = append(path1CandidateSegments[certTemplateNode.ID], terminal)
+			path1CertTemplates.Add(certTemplateNode.ID.Uint32())
+			lock.Unlock()
+
+			return nil
+		})}); err != nil {
+		return nil, err
+	}
+
+	//Find all cert templates we have EnrollOnBehalfOf from our first group of templates to prefilter again
+	if err := db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+		if p, err := ops.FetchPathSet(tx, tx.Relationships().Filter(
+			query.And(
+				query.InIDs(query.StartID(), cardinality.DuplexToGraphIDs(path1CertTemplates)...),
+				query.KindIn(query.Relationship(), ad.EnrollOnBehalfOf),
+				query.KindIn(query.End(), ad.CertTemplate)),
+		)); err != nil {
+			return err
+		} else {
+			enrollOnBehalfOfPaths = p
+			return nil
+		}
+	}); err != nil {
+		return nil, err
+	}
+
+	for _, path := range enrollOnBehalfOfPaths {
+		path2CandidateTemplates.Add(path.Terminal().ID.Uint32())
+	}
+
+	//Use our enterprise ca + candidate templates as filters for the third query (P2)
+	if err := traversalInst.BreadthFirst(ctx, traversal.Plan{
+		Root: startNode,
+		Driver: ADCSESC3Path2Pattern(edge.EndID, enterpriseCANodes, path2CandidateTemplates).Do(func(terminal *graph.PathSegment) error {
+			certTemplateNode := terminal.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.CertTemplate)
+			})
+
+			lock.Lock()
+			path2CandidateSegments[certTemplateNode.ID] = append(path2CandidateSegments[certTemplateNode.ID], terminal)
+			path2CertTemplates.Add(certTemplateNode.ID.Uint32())
+			lock.Unlock()
+
+			return nil
+		})}); err != nil {
+		return nil, err
+	}
+
+	//EnrollOnBehalfOf is used to join P1 and P2, so we'll use it as the key
+	for _, p3 := range enrollOnBehalfOfPaths {
+		ct1 := p3.Root()
+		ct2 := p3.Terminal()
+
+		if !path1CertTemplates.Contains(ct1.ID.Uint32()) {
+			continue
+		}
+
+		if !path2CertTemplates.Contains(ct2.ID.Uint32()) {
+			continue
+		}
+
+		p1paths := path1CandidateSegments[ct1.ID]
+		p2paths := path2CandidateSegments[ct2.ID]
+
+		for _, p1 := range p1paths {
+			eca1 := p1.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.EnterpriseCA) && enterpriseCANodes.Contains(nextSegment.Node.ID.Uint32())
+			})
+
+			for _, p2 := range p2paths {
+				eca2 := p2.Search(func(nextSegment *graph.PathSegment) bool {
+					return nextSegment.Node.Kinds.ContainsOneOf(ad.EnterpriseCA) && enterpriseCANodes.Contains(nextSegment.Node.ID.Uint32())
+				})
+
+				for _, p4 := range enterpriseCASegments[eca1.ID] {
+					paths.AddPath(p4.Path())
 				}
 
-				return true
-			},
-		}); err != nil {
-			log.Errorf("Error getting paths from start node %d to templates: %w", startNode.ID, err)
-			return finalPaths, err
-		} else {
-			for _, path := range pathsToTemplates {
-				certTemplate := path.Terminal()
-				if ecaPaths, err := ops.FetchPathSet(tx, tx.Relationships().Filter(query.And(
-					query.Equals(query.StartID(), certTemplate.ID),
-					query.KindIn(query.End(), ad.EnterpriseCA),
-					query.KindIn(query.Relationship(), ad.PublishedTo),
-				))); err != nil {
-					log.Errorf("error getting eca published to for cert template %d : %w", certTemplate.ID, err)
-				} else {
-					for _, ecaPath := range ecaPaths {
-						eca := ecaPath.Terminal()
-						if domainPaths, err := FetchEnterpriseCAsCertChainPathToDomain(tx, eca, targetDomainNode); err != nil {
-							log.Errorf("error getting eca %d path to domain %d: %w", eca.ID, targetDomainNode.ID, err)
-						} else if domainPaths.Len() == 0 {
-							continue
-						} else if trustedForAuthPaths, err := FetchEnterpriseCAsTrustedForAuthPathToDomain(tx, eca, targetDomainNode); err != nil {
-							log.Errorf("error getting eca %d path to domain %d via trusted for auth: %w", eca.ID, targetDomainNode.ID, err)
-						} else if trustedForAuthPaths.Len() == 0 {
-							continue
-						} else if userPathsToCa, err := ops.TraversePaths(tx, ops.TraversalPlan{
-							Root:      startNode,
-							Direction: graph.DirectionOutbound,
-							BranchQuery: func() graph.Criteria {
-								return query.KindIn(query.Relationship(), ad.Enroll, ad.MemberOf)
-							},
-							DescentFilter: OutboundControlDescentFilter,
-							PathFilter: func(ctx *ops.TraversalContext, segment *graph.PathSegment) bool {
-								return segment.Node.ID == eca.ID
-							},
-						}); err != nil {
-							log.Errorf("Error getting paths from start node %d to enterprise ca: %w", startNode.ID, err)
-						} else if userPathsToCa.Len() == 0 {
-							continue
-						} else {
-							finalPaths.AddPath(path)
-							finalPaths.AddPath(ecaPath)
-							finalPaths.AddPathSet(domainPaths)
-							finalPaths.AddPathSet(trustedForAuthPaths)
-							finalPaths.AddPathSet(userPathsToCa)
-						}
+				for _, p5 := range enterpriseCASegments[eca2.ID] {
+					paths.AddPath(p5.Path())
+				}
+
+				paths.AddPath(p3)
+				paths.AddPath(p1.Path())
+				paths.AddPath(p2.Path())
+
+				if collected, err := eca2.Properties.Get(ad.EnrollmentAgentRestrictionsCollected.String()).Bool(); err != nil {
+					log.Errorf("error getting enrollmentagentcollected for eca2 %d: %v", eca2.ID, err)
+				} else if hasRestrictions, err := eca2.Properties.Get(ad.HasEnrollmentAgentRestrictions.String()).Bool(); err != nil {
+					log.Errorf("error getting hasenrollmentagentrestrictions for ca %d: %v", eca2.ID, err)
+				} else if collected && hasRestrictions {
+					if p6, err := getDelegatedEnrollmentAgentPath(ctx, startNode, ct2, db); err != nil {
+						log.Infof("Error getting p6 for composition: %v", err)
+					} else {
+						paths.AddPathSet(p6)
 					}
 				}
 			}
 		}
-
-		return finalPaths, nil
 	}
+
+	return paths, nil
+}
+
+func getDelegatedEnrollmentAgentPath(ctx context.Context, startNode, certTemplate2 *graph.Node, db graph.Database) (graph.PathSet, error) {
+	var pathSet graph.PathSet
+
+	return pathSet, db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+		if paths, err := ops.FetchPathSet(tx, tx.Relationships().Filter(query.And(
+			query.InIDs(query.StartID(), startNode.ID),
+			query.InIDs(query.EndID(), certTemplate2.ID),
+			query.KindIn(query.Relationship(), ad.DelegatedEnrollmentAgent),
+		))); err != nil {
+			return err
+		} else {
+			pathSet = paths
+			return nil
+		}
+	})
+}
+
+func ADCSESC1Path1Pattern(domainID graph.ID) traversal.PatternContinuation {
+	return traversal.NewPattern().
+		Outbound(query.And(
+			query.Kind(query.Relationship(), ad.MemberOf),
+			query.Kind(query.End(), ad.Group),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.GenericAll, ad.Enroll, ad.AllExtendedRights),
+			query.Kind(query.End(), ad.CertTemplate),
+			query.Or(
+				query.And(
+					query.Equals(query.EndProperty(ad.RequiresManagerApproval.String()), false),
+					query.GreaterThan(query.EndProperty(ad.SchemaVersion.String()), 1),
+					query.Equals(query.EndProperty(ad.AuthorizedSignatures.String()), 0),
+					query.Equals(query.EndProperty(ad.AuthenticationEnabled.String()), true),
+					query.Equals(query.EndProperty(ad.EnrolleeSuppliesSubject.String()), true),
+				),
+				query.And(
+					query.Equals(query.EndProperty(ad.RequiresManagerApproval.String()), false),
+					query.Equals(query.EndProperty(ad.SchemaVersion.String()), 1),
+					query.Equals(query.EndProperty(ad.AuthenticationEnabled.String()), true),
+					query.Equals(query.EndProperty(ad.EnrolleeSuppliesSubject.String()), true),
+				),
+			),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.PublishedTo, ad.IssuedSignedBy),
+			query.Kind(query.End(), ad.EnterpriseCA),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.IssuedSignedBy, ad.EnterpriseCAFor),
+			query.Kind(query.End(), ad.RootCA),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.RootCAFor),
+			query.Equals(query.EndID(), domainID),
+		))
+}
+
+func ADCSESC1Path2Pattern(domainID graph.ID, enterpriseCAs cardinality.Duplex[uint32]) traversal.PatternContinuation {
+	return traversal.NewPattern().
+		Outbound(query.And(
+			query.Kind(query.Relationship(), ad.MemberOf),
+			query.Kind(query.End(), ad.Group),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.Enroll),
+			query.InIDs(query.EndID(), cardinality.DuplexToGraphIDs(enterpriseCAs)...),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.TrustedForNTAuth),
+			query.Kind(query.End(), ad.NTAuthStore),
+		)).
+		Outbound(query.And(
+			query.KindIn(query.Relationship(), ad.NTAuthStoreFor),
+			query.Equals(query.EndID(), domainID),
+		))
+}
+
+func GetADCSESC1EdgeComposition(ctx context.Context, db graph.Database, edge *graph.Relationship) (graph.PathSet, error) {
+	var (
+		startNode *graph.Node
+
+		traversalInst      = traversal.New(db, analysis.MaximumDatabaseParallelWorkers)
+		paths              = graph.PathSet{}
+		candidateSegments  = map[graph.ID][]*graph.PathSegment{}
+		path1EnterpriseCAs = cardinality.NewBitmap32()
+		path2EnterpriseCAs = cardinality.NewBitmap32()
+		lock               = &sync.Mutex{}
+	)
+
+	if err := db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+		if node, err := ops.FetchNode(tx, edge.StartID); err != nil {
+			return err
+		} else {
+			startNode = node
+			return nil
+		}
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := traversalInst.BreadthFirst(ctx, traversal.Plan{
+		Root: startNode,
+		Driver: ADCSESC1Path1Pattern(edge.EndID).Do(func(terminal *graph.PathSegment) error {
+			// Find the CA and track it before stuffing this path into the candidates
+			enterpriseCANode := terminal.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.EnterpriseCA)
+			})
+
+			lock.Lock()
+			candidateSegments[enterpriseCANode.ID] = append(candidateSegments[enterpriseCANode.ID], terminal)
+			path1EnterpriseCAs.Add(enterpriseCANode.ID.Uint32())
+			lock.Unlock()
+
+			return nil
+		}),
+	}); err != nil {
+		return nil, err
+	}
+
+	if err := traversalInst.BreadthFirst(ctx, traversal.Plan{
+		Root: startNode,
+		Driver: ADCSESC1Path2Pattern(edge.EndID, path1EnterpriseCAs).Do(func(terminal *graph.PathSegment) error {
+			// Find the CA and track it before stuffing this path into the candidates
+			enterpriseCANode := terminal.Search(func(nextSegment *graph.PathSegment) bool {
+				return nextSegment.Node.Kinds.ContainsOneOf(ad.EnterpriseCA)
+			})
+
+			lock.Lock()
+			candidateSegments[enterpriseCANode.ID] = append(candidateSegments[enterpriseCANode.ID], terminal)
+			path2EnterpriseCAs.Add(enterpriseCANode.ID.Uint32())
+			lock.Unlock()
+
+			return nil
+		}),
+	}); err != nil {
+		return nil, err
+	}
+
+	// Intersect the CAs and take only those seen in both paths
+	path1EnterpriseCAs.And(path2EnterpriseCAs)
+
+	// Render paths from the segments
+	return paths, path1EnterpriseCAs.Each(func(value uint32) (bool, error) {
+		for _, segment := range candidateSegments[graph.ID(value)] {
+			log.Infof("Found ESC1 Path: %s", graph.FormatPathSegment(segment))
+
+			paths.AddPath(segment.Path())
+		}
+
+		return true, nil
+	})
 }
 
 func getGoldenCertEdgeComposition(tx graph.Transaction, edge *graph.Relationship) (graph.PathSet, error) {
@@ -575,16 +946,16 @@ func getGoldenCertEdgeComposition(tx graph.Transaction, edge *graph.Relationship
 			query.KindIn(query.End(), ad.EnterpriseCA),
 			query.KindIn(query.Relationship(), ad.HostsCAService),
 		))); err != nil {
-			log.Errorf("error getting hostscaservice edge to enterprise ca for computer %d : %w", startNode.ID, err)
+			log.Errorf("error getting hostscaservice edge to enterprise ca for computer %d : %v", startNode.ID, err)
 		} else {
 			for _, ecaPath := range ecaPaths {
 				eca := ecaPath.Terminal()
 				if chainToRootCAPaths, err := FetchEnterpriseCAsCertChainPathToDomain(tx, eca, targetDomainNode); err != nil {
-					log.Errorf("error getting eca %d path to domain %d: %w", eca.ID, targetDomainNode.ID, err)
+					log.Errorf("error getting eca %d path to domain %d: %v", eca.ID, targetDomainNode.ID, err)
 				} else if chainToRootCAPaths.Len() == 0 {
 					continue
 				} else if trustedForAuthPaths, err := FetchEnterpriseCAsTrustedForAuthPathToDomain(tx, eca, targetDomainNode); err != nil {
-					log.Errorf("error getting eca %d path to domain %d via trusted for auth: %w", eca.ID, targetDomainNode.ID, err)
+					log.Errorf("error getting eca %d path to domain %d via trusted for auth: %v", eca.ID, targetDomainNode.ID, err)
 				} else if trustedForAuthPaths.Len() == 0 {
 					continue
 				} else {

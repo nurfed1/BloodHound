@@ -377,6 +377,41 @@ SubjectAltRequireUPN: types.#StringEnum & {
 	representation: "subjectaltrequireupn"
 }
 
+SubjectAltRequireDNS: types.#StringEnum & {
+	symbol: "SubjectAltRequireDNS"
+	schema: "ad"
+	name: "Subject Alternative Name Require DNS"
+	representation: "subjectaltrequiredns"
+}
+
+SubjectAltRequireDomainDNS: types.#StringEnum & {
+	symbol: "SubjectAltRequireDomainDNS"
+	schema: "ad"
+	name: "Subject Alternative Name Require Domain DNS"
+	representation: "subjectaltrequiredomaindns"
+}
+
+SubjectAltRequireEmail: types.#StringEnum & {
+	symbol: "SubjectAltRequireEmail"
+	schema: "ad"
+	name: "Subject Alternative Name Require Email"
+	representation: "subjectaltrequireemail"
+}
+
+SubjectAltRequireSPN: types.#StringEnum & {
+	symbol: "SubjectAltRequireSPN"
+	schema: "ad"
+	name: "Subject Alternative Name Require SPN"
+	representation: "subjectaltrequirespn"
+}
+
+SubjectRequireEmail: types.#StringEnum & {
+	symbol: "SubjectRequireEmail"
+	schema: "ad"
+	name: "Subject Require Email"
+	representation: "subjectrequireemail"
+}
+
 AuthorizedSignatures: types.#StringEnum & {
 	symbol: "AuthorizedSignatures"
 	schema: "ad"
@@ -389,6 +424,13 @@ ApplicationPolicies: types.#StringEnum & {
 	schema: "ad"
 	name: "Application Policies"
 	representation: "applicationpolicies"
+}
+
+IssuancePolicies: types.#StringEnum & {
+	symbol: "IssuancePolicies"
+	schema: "ad"
+	name: "Issuance Policies"
+	representation: "issuancepolicies"
 }
 
 SchemaVersion: types.#StringEnum & {
@@ -445,6 +487,13 @@ EnrollmentFlag: types.#StringEnum & {
 	schema: "ad"
 	name: "Enrollment Flags"
 	representation: "enrollmentflag"
+}
+
+Flags: types.#StringEnum & {
+	symbol: "Flags"
+	schema: "ad"
+	name: "Flags"
+	representation: "flags"
 }
 
 NoSecurityExtension: types.#StringEnum & {
@@ -525,8 +574,14 @@ Properties: [
 	StrongCertificateBindingEnforcement,
 	EKUs,
 	SubjectAltRequireUPN,
+	SubjectAltRequireDNS,
+	SubjectAltRequireDomainDNS,
+	SubjectAltRequireEmail,
+	SubjectAltRequireSPN,
+	SubjectRequireEmail,
 	AuthorizedSignatures,
 	ApplicationPolicies,
+	IssuancePolicies,
 	SchemaVersion,
 	RequiresManagerApproval,
 	AuthenticationEnabled,
@@ -535,6 +590,7 @@ Properties: [
 	CertificateNameFlag,
 	EffectiveEKUs,
 	EnrollmentFlag,
+	Flags,
 	NoSecurityExtension,
 	RenewalPeriod,
 	ValidityPeriod,
@@ -830,6 +886,11 @@ RootCAFor: types.#Kind & {
 	schema: "active_directory"
 }
 
+DCFor: types.#Kind & {
+	symbol: "DCFor"
+	schema: "active_directory"
+}
+
 PublishedTo: types.#Kind & {
 	symbol: "PublishedTo"
 	schema: "active_directory"
@@ -882,6 +943,16 @@ TrustedForNTAuth: types.#Kind & {
 
 EnterpriseCAFor: types.#Kind & {
 	symbol: "EnterpriseCAFor"
+	schema: "active_directory"
+}
+
+CanAbuseUPNCertMapping: types.#Kind & {
+	symbol: "CanAbuseUPNCertMapping"
+	schema: "active_directory"
+}
+
+CanAbuseWeakCertBinding: types.#Kind & {
+	symbol: "CanAbuseWeakCertBinding"
 	schema: "active_directory"
 }
 
@@ -970,6 +1041,7 @@ RelationshipKinds: [
 	SyncLAPSPassword,
 	WriteAccountRestrictions,
 	RootCAFor,
+	DCFor,
 	PublishedTo,
 	ManageCertificates,
 	ManageCA,
@@ -981,6 +1053,8 @@ RelationshipKinds: [
 	NTAuthStoreFor,
 	TrustedForNTAuth,
 	EnterpriseCAFor,
+	CanAbuseUPNCertMapping,
+	CanAbuseWeakCertBinding,
 	IssuedSignedBy,
 	GoldenCert,
 	EnrollOnBehalfOf,

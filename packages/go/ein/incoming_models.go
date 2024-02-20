@@ -268,6 +268,8 @@ type Computer struct {
 	DCRegistryData     DCRegistryData
 	Status             ComputerStatus
 	HasSIDHistory      []TypedPrincipal
+	IsDC               bool
+	DomainSID          string
 }
 
 type OU struct {

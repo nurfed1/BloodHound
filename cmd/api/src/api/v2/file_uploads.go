@@ -20,12 +20,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/gorilla/mux"
 	"github.com/specterops/bloodhound/log"
-	"github.com/specterops/bloodhound/slices"
 	"github.com/specterops/bloodhound/src/api"
 	"github.com/specterops/bloodhound/src/auth"
 	"github.com/specterops/bloodhound/src/ctx"
@@ -128,7 +128,7 @@ func (s Resources) ProcessFileUpload(response http.ResponseWriter, request *http
 	} else if fileUploadJob, err := fileupload.GetFileUploadJobByID(s.DB, int64(fileUploadJobID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if fileName, err := fileupload.SaveIngestFile(s.Config.TempDirectory(), request.Body); err != nil {
-		if errors.Is(err, fileupload.InvalidIngestFileType) {
+		if errors.Is(err, fileupload.ErrInvalidIngestFileType) {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("Error saving ingest file: %v", err), request), response)
 		} else {
 			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, fmt.Sprintf("Error saving ingest file: %v", err), request), response)
@@ -153,10 +153,9 @@ func (s Resources) EndFileUploadJob(response http.ResponseWriter, request *http.
 		api.HandleDatabaseError(request, response, err)
 	} else if fileUploadJob.Status != model.JobStatusRunning {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "job must be in running status to end", request), response)
-	} else if fileUploadJob, err := fileupload.EndFileUploadJob(s.DB, fileUploadJob); err != nil {
+	} else if err := fileupload.EndFileUploadJob(s.DB, fileUploadJob); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
-		s.TaskNotifier.NotifyOfFileUploadJobStatus(fileUploadJob)
 		response.WriteHeader(http.StatusOK)
 	}
 }

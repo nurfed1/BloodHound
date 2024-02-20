@@ -21,7 +21,10 @@ package ad_test
 
 import (
 	"context"
+
 	"github.com/specterops/bloodhound/analysis"
+	"github.com/specterops/bloodhound/analysis/impact"
+	"github.com/specterops/bloodhound/graphschema"
 
 	ad2 "github.com/specterops/bloodhound/analysis/ad"
 
@@ -32,6 +35,7 @@ import (
 
 	"github.com/specterops/bloodhound/dawgs/graph"
 	"github.com/specterops/bloodhound/graphschema/ad"
+	"github.com/specterops/bloodhound/graphschema/common"
 	"github.com/specterops/bloodhound/src/test/integration"
 
 	"github.com/stretchr/testify/assert"
@@ -39,11 +43,12 @@ import (
 )
 
 func TestADCSESC1(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
 
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.ADCSESC1Harness.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC1")
 
 		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
@@ -53,6 +58,7 @@ func TestADCSESC1(t *testing.T) {
 		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
 		require.Nil(t, err)
 		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
 
 		cache := ad2.NewADCSCache()
 		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
@@ -106,17 +112,16 @@ func TestADCSESC1(t *testing.T) {
 			}
 			return nil
 		})
-		return nil
 	})
-
 }
 
 func TestGoldenCert(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
 
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.ADCSGoldenCertHarness.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - Golden Cert")
 
 		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
@@ -170,16 +175,17 @@ func TestGoldenCert(t *testing.T) {
 			}
 			return nil
 		})
-		return nil
 	})
 
 }
 
 func TestCanAbuseUPNCertMapping(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.WeakCertBindingAndUPNCertMappingHarness.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - CanAbuseUPNCertMapping")
 
 		if enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA); err != nil {
@@ -188,6 +194,7 @@ func TestCanAbuseUPNCertMapping(t *testing.T) {
 			t.Logf("failed post processing for %s: %v", ad.CanAbuseUPNCertMapping.String(), err)
 		}
 
+		// TODO: We're throwing away the collected errors from the operation and should assert on them
 		operation.Done()
 
 		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
@@ -214,15 +221,15 @@ func TestCanAbuseUPNCertMapping(t *testing.T) {
 			}
 			return nil
 		})
-		return nil
 	})
 }
 
 func TestCanAbuseWeakCertBinding(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.WeakCertBindingAndUPNCertMappingHarness.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - CanAbuseWeakCertBinding")
 
 		if enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA); err != nil {
@@ -231,6 +238,7 @@ func TestCanAbuseWeakCertBinding(t *testing.T) {
 			t.Logf("failed post processing for %s: %v", ad.CanAbuseWeakCertBinding.String(), err)
 		}
 
+		// TODO: We're throwing away the collected errors from the operation and should assert on them
 		operation.Done()
 
 		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
@@ -255,17 +263,18 @@ func TestCanAbuseWeakCertBinding(t *testing.T) {
 				assert.False(t, results.Contains(harness.WeakCertBindingAndUPNCertMappingHarness.Domain2))
 				assert.False(t, results.Contains(harness.WeakCertBindingAndUPNCertMappingHarness.Domain3))
 			}
+
 			return nil
 		})
-		return nil
 	})
 }
 
 func TestIssuedSignedBy(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.IssuedSignedByHarness.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - IssuedSignedBy")
 
 		if rootCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.RootCA); err != nil {
@@ -322,20 +331,21 @@ func TestIssuedSignedBy(t *testing.T) {
 				assert.False(t, results2.Contains(harness.IssuedSignedByHarness.EnterpriseCA3))
 				assert.False(t, results3.Contains(harness.IssuedSignedByHarness.EnterpriseCA3))
 			}
+
 			return nil
 		})
-		return nil
 	})
 }
 
 func TestTrustedForNTAuth(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
 
 	testContext.DatabaseTestWithSetup(
-		func(harness *integration.HarnessDetails) {
+		func(harness *integration.HarnessDetails) error {
 			harness.TrustedForNTAuthHarness.Setup(testContext)
+			return nil
 		},
-		func(harness integration.HarnessDetails, db graph.Database) error {
+		func(harness integration.HarnessDetails, db graph.Database) {
 			// post `TrustedForNTAuth` edges
 			operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - TrustedForNTAuth")
 
@@ -364,29 +374,29 @@ func TestTrustedForNTAuth(t *testing.T) {
 				}
 				return nil
 			})
-
-			return nil
 		})
 }
 
 func TestEnrollOnBehalfOf(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.EnrollOnBehalfOfHarnessOne.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
 		v1Templates := make([]*graph.Node, 0)
-		v2Templates := make([]*graph.Node, 0)
 		for _, template := range certTemplates {
 			if version, err := template.Properties.Get(ad.SchemaVersion.String()).Float64(); err != nil {
 				continue
 			} else if version == 1 {
 				v1Templates = append(v1Templates, template)
 			} else if version >= 2 {
-				v2Templates = append(v2Templates, template)
+				continue
 			}
 		}
+
 		require.Nil(t, err)
+
 		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
 			results, err := ad2.EnrollOnBehalfOfVersionOne(tx, v1Templates, certTemplates)
 			require.Nil(t, err)
@@ -413,26 +423,27 @@ func TestEnrollOnBehalfOf(t *testing.T) {
 
 			return nil
 		})
-
-		return nil
 	})
 
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.EnrollOnBehalfOfHarnessTwo.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
-		v1Templates := make([]*graph.Node, 0)
 		v2Templates := make([]*graph.Node, 0)
+
 		for _, template := range certTemplates {
 			if version, err := template.Properties.Get(ad.SchemaVersion.String()).Float64(); err != nil {
 				continue
 			} else if version == 1 {
-				v1Templates = append(v1Templates, template)
+				continue
 			} else if version >= 2 {
 				v2Templates = append(v2Templates, template)
 			}
 		}
+
 		require.Nil(t, err)
+
 		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
 			results, err := ad2.EnrollOnBehalfOfVersionTwo(tx, v2Templates, certTemplates)
 			require.Nil(t, err)
@@ -446,16 +457,15 @@ func TestEnrollOnBehalfOf(t *testing.T) {
 
 			return nil
 		})
-
-		return nil
 	})
 }
 
 func TestADCSESC3(t *testing.T) {
-	testContext := integration.NewGraphTestContext(t)
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.ESC3Harness1.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC3")
 
 		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
@@ -465,6 +475,7 @@ func TestADCSESC3(t *testing.T) {
 		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
 		require.Nil(t, err)
 		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
 
 		cache := ad2.NewADCSCache()
 		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
@@ -479,7 +490,7 @@ func TestADCSESC3(t *testing.T) {
 					for _, enterpriseCA := range enterpriseCAs {
 						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
 							if err := ad2.PostADCSESC3(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
-								t.Logf("failed post processing for %s: %v", ad.ADCSESC1.String(), err)
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC3.String(), err)
 							} else {
 								return nil
 							}
@@ -506,12 +517,12 @@ func TestADCSESC3(t *testing.T) {
 			}
 			return nil
 		})
-		return nil
 	})
 
-	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) {
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
 		harness.ESC3Harness2.Setup(testContext)
-	}, func(harness integration.HarnessDetails, db graph.Database) error {
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
 		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC3")
 
 		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
@@ -521,6 +532,7 @@ func TestADCSESC3(t *testing.T) {
 		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
 		require.Nil(t, err)
 		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
 
 		cache := ad2.NewADCSCache()
 		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
@@ -535,7 +547,7 @@ func TestADCSESC3(t *testing.T) {
 					for _, enterpriseCA := range enterpriseCAs {
 						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
 							if err := ad2.PostADCSESC3(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
-								t.Logf("failed post processing for %s: %v", ad.ADCSESC1.String(), err)
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC3.String(), err)
 							} else {
 								return nil
 							}
@@ -570,6 +582,1672 @@ func TestADCSESC3(t *testing.T) {
 			}
 			return nil
 		})
+	})
+}
+
+func TestADCSESC9a(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aPrincipalHarness.Setup(testContext)
 		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 6, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.Group1))
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.Group2))
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.Group3))
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.Group4))
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.Group5))
+				assert.True(t, results.Contains(harness.ESC9aPrincipalHarness.User2))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aHarness1.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 3, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aHarness1.Group1))
+				assert.True(t, results.Contains(harness.ESC9aHarness1.Group2))
+				assert.True(t, results.Contains(harness.ESC9aHarness1.Group3))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aHarness2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 4, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aHarness2.User5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Computer5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Group5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Group6))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aHarness2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 4, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aHarness2.User5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Computer5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Group5))
+				assert.True(t, results.Contains(harness.ESC9aHarness2.Group6))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aHarnessVictim.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 2, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aHarnessVictim.Group1))
+				assert.True(t, results.Contains(harness.ESC9aHarnessVictim.Group2))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9aHarnessECA.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9a")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9a(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9a.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 1, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9aHarnessECA.Group1))
+			}
+			return nil
+		})
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchRelationships(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9a)
+			})); err != nil {
+				t.Fatalf("error fetching esc9a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 1, len(results))
+				edge := results[0]
+
+				if edgeComp, err := ad2.GetEdgeCompositionPath(context.Background(), db, edge); err != nil {
+					t.Fatalf("error getting edge composition for esc9: %v", err)
+				} else {
+					nodes := edgeComp.AllNodes().Slice()
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.Group1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.Domain1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.User1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.CertTemplate1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.EnterpriseCA1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.DC1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.NTAuthStore1)
+					assert.Contains(t, nodes, harness.ESC9aHarnessECA.RootCA1)
+				}
+			}
+
+			return nil
+		})
+	})
+
+}
+
+func TestADCSESC9b(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9bPrincipalHarness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9b")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9b(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9b.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9b)
+			})); err != nil {
+				t.Fatalf("error fetching esc9b edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 6, len(results))
+
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Group1))
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Group2))
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Group3))
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Group4))
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Group5))
+				require.True(t, results.Contains(harness.ESC9bPrincipalHarness.Computer2))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9bHarness1.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9b")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9b(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9b.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9b)
+			})); err != nil {
+				t.Fatalf("error fetching esc9b edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 2, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9bHarness1.Group1))
+				assert.True(t, results.Contains(harness.ESC9bHarness1.Group2))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9bHarness2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9b")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9b(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9b.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9b)
+			})); err != nil {
+				t.Fatalf("error fetching esc9b edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 2, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9bHarness2.User5))
+				assert.True(t, results.Contains(harness.ESC9bHarness2.Computer5))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9bHarnessVictim.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9b")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9b(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9b.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9b)
+			})); err != nil {
+				t.Fatalf("error fetching esc9b edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 2, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9bHarnessVictim.Group1))
+				assert.True(t, results.Contains(harness.ESC9bHarnessVictim.Group2))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC9bHarnessECA.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC9b")
+
+		groupExpansions, _, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+				if enterpriseCAs, err := ad2.FetchEnterpriseCAsTrustedForNTAuthToDomain(tx, innerDomain); err != nil {
+					return err
+				} else {
+					for _, enterpriseCA := range enterpriseCAs {
+						if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+							if err := ad2.PostADCSESC9b(ctx, tx, outC, groupExpansions, enterpriseCA, innerDomain, cache); err != nil {
+								t.Logf("failed post processing for %s: %v", ad.ADCSESC9b.String(), err)
+							} else {
+								return nil
+							}
+						}
+					}
+				}
+				return nil
+			})
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC9b)
+			})); err != nil {
+				t.Fatalf("error fetching esc9b edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 1, len(results))
+
+				assert.True(t, results.Contains(harness.ESC9bHarnessECA.Group1))
+			}
+			return nil
+		})
+	})
+}
+
+func TestADCSESC6a(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6aHarnessPrincipalEdges.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6a")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6a)
+			})); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC6aHarnessPrincipalEdges.Group1))
+				require.True(t, results.Contains(harness.ESC6aHarnessPrincipalEdges.Group2))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6aHarnessECA.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6a")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6a)
+			})); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 1, len(results))
+				name, _ := results.Pick().Properties.Get(common.Name.String()).String()
+				require.Equal(t, name, "Group0")
+			}
+
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6aHarnessTemplate1.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6a")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6a)
+			})); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+				names := []string{}
+				for _, result := range results.Slice() {
+					name, _ := result.Properties.Get(common.Name.String()).String()
+					names = append(names, name)
+				}
+				require.Contains(t, names, "Group1", "Group2")
+			}
+
+			if edge, err := tx.Relationships().Filterf(func() graph.Criteria {
+				return query.And(
+					query.Kind(query.Relationship(), ad.ADCSESC6a),
+					query.Equals(query.StartProperty(common.Name.String()), "Group1"),
+				)
+			}).First(); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				composition, err := ad2.GetADCSESC6aEdgeComposition(context.Background(), db, edge)
+				require.Nil(t, err)
+				names := []string{}
+				for _, node := range composition.AllNodes() {
+					name, _ := node.Properties.Get(common.Name.String()).String()
+					names = append(names, name)
+				}
+				require.Equal(t, 8, len(composition.AllNodes()))
+				require.Contains(t, names, "Group1")
+				require.Contains(t, names, "Group0")
+				require.Contains(t, names, "CertTemplate1")
+				require.Contains(t, names, "EnterpriseCA")
+				require.Contains(t, names, "RootCA")
+				require.Contains(t, names, "NTAuthStore")
+				require.Contains(t, names, "DC")
+				require.Contains(t, names, "Domain")
+			}
+
+			if edge, err := tx.Relationships().Filterf(func() graph.Criteria {
+				return query.And(
+					query.Kind(query.Relationship(), ad.ADCSESC6a),
+					query.Equals(query.StartProperty(common.Name.String()), "Group2"),
+				)
+			}).First(); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				composition, err := ad2.GetADCSESC6aEdgeComposition(context.Background(), db, edge)
+				require.Nil(t, err)
+				names := []string{}
+				for _, node := range composition.AllNodes() {
+					name, _ := node.Properties.Get(common.Name.String()).String()
+					names = append(names, name)
+				}
+				require.Equal(t, 8, len(composition.AllNodes()))
+				require.Contains(t, names, "Group2")
+				require.Contains(t, names, "Group0")
+				require.Contains(t, names, "CertTemplate2")
+				require.Contains(t, names, "EnterpriseCA")
+				require.Contains(t, names, "RootCA")
+				require.Contains(t, names, "NTAuthStore")
+				require.Contains(t, names, "DC")
+				require.Contains(t, names, "Domain")
+			}
+
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6aHarnessTemplate2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6a")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6a)
+			})); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				names := []string{}
+				for _, result := range results.Slice() {
+					name, _ := result.Properties.Get(common.Name.String()).String()
+					names = append(names, name)
+				}
+				require.Equal(t, 14, len(results))
+				require.NotContains(t, names, "User2")
+				require.NotContains(t, names, "User3")
+				require.NotContains(t, names, "User5")
+				require.NotContains(t, names, "User7")
+				require.NotContains(t, names, "Computer6")
+			}
+			return nil
+		})
+	})
+}
+
+func TestADCSESC6b(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6bTemplate1Harness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6b template 1")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6b)
+			})); err != nil {
+				t.Fatalf("error fetching esc6b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate1Harness.Group1))
+				require.True(t, results.Contains(harness.ESC6bTemplate1Harness.Group1))
+
+				require.False(t, results.Contains(harness.ESC6bTemplate1Harness.Group3))
+				require.False(t, results.Contains(harness.ESC6bTemplate1Harness.Group4))
+				require.False(t, results.Contains(harness.ESC6bTemplate1Harness.Group5))
+
+			}
+
+			// run edge composition against the group1 node which has an outbound esc 6b edge
+			if edge, err := tx.Relationships().Filterf(
+				func() graph.Criteria {
+					return query.And(
+						query.Kind(query.Relationship(), ad.ADCSESC6b),
+						query.Equals(query.StartProperty(common.Name.String()), "Group1"),
+					)
+				}).First(); err != nil {
+				t.Fatalf("error fetching esc6b edge in integration test: %v", err)
+			} else {
+				composition, err := ad2.GetADCSESC6bEdgeComposition(context.Background(), db, edge)
+				require.Nil(t, err)
+
+				require.Equal(t, 8, len(composition.AllNodes()))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Group0))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Group1))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.CertTemplate1))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.EnterpriseCA))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.RootCA))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.NTAuthStore))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.DC))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Domain))
+
+			}
+
+			// run edge composition against the group2 node which has an outbound esc 6b edge
+			if edge, err := tx.Relationships().Filterf(
+				func() graph.Criteria {
+					return query.And(
+						query.Kind(query.Relationship(), ad.ADCSESC6b),
+						query.Equals(query.StartProperty(common.Name.String()), "Group2"),
+					)
+				}).First(); err != nil {
+				t.Fatalf("error fetching esc6b edge in integration test: %v", err)
+			} else {
+				composition, err := ad2.GetADCSESC6bEdgeComposition(context.Background(), db, edge)
+				require.Nil(t, err)
+
+				require.Equal(t, 8, len(composition.AllNodes()))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Group0))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Group2))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.CertTemplate2))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.EnterpriseCA))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.RootCA))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.NTAuthStore))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.DC))
+				require.True(t, composition.AllNodes().Contains(harness.ESC6bTemplate1Harness.Domain))
+
+			}
+
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6bECAHarness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6b eca")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(
+				tx.Relationships().Filterf(func() graph.Criteria {
+					return query.Kind(query.Relationship(), ad.ADCSESC6b)
+				})); err != nil {
+				t.Fatalf("error fetching esc6b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 1, len(results))
+
+				require.True(t, results.Contains(harness.ESC6bECAHarness.Group0))
+			}
+
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6bPrincipalEdgesHarness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6b principal edges")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6b)
+			})); err != nil {
+				t.Fatalf("error fetching esc6b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC6bPrincipalEdgesHarness.Group1))
+				require.True(t, results.Contains(harness.ESC6bPrincipalEdgesHarness.Group2))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC6bTemplate2Harness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC6b")
+
+		groupExpansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db)
+		require.Nil(t, err)
+		enterpriseCertAuthorities, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA)
+		require.Nil(t, err)
+		certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate)
+		require.Nil(t, err)
+		domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain)
+		require.Nil(t, err)
+
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, enterpriseCertAuthorities, certTemplates)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC6b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC6b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+
+		}
+		operation.Done()
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC6b)
+			})); err != nil {
+				t.Fatalf("error fetching esc6a edges in integration test; %v", err)
+			} else {
+				require.True(t, len(results) == 12)
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.User1))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Computer1))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group1))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Computer2))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group2))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Computer3))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group3))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.User4))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Computer4))
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group4))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group5))
+
+				require.True(t, results.Contains(harness.ESC6bTemplate2Harness.Group6))
+
+			}
+			return nil
+		})
+	})
+
+}
+
+func FetchADCSPrereqs(db graph.Database) (impact.PathAggregator, []*graph.Node, []*graph.Node, []*graph.Node, ad2.ADCSCache, error) {
+	if expansions, err := ad2.ExpandAllRDPLocalGroups(context.Background(), db); err != nil {
+		return nil, nil, nil, nil, ad2.ADCSCache{}, err
+	} else if eca, err := ad2.FetchNodesByKind(context.Background(), db, ad.EnterpriseCA); err != nil {
+		return nil, nil, nil, nil, ad2.ADCSCache{}, err
+	} else if certTemplates, err := ad2.FetchNodesByKind(context.Background(), db, ad.CertTemplate); err != nil {
+		return nil, nil, nil, nil, ad2.ADCSCache{}, err
+	} else if domains, err := ad2.FetchNodesByKind(context.Background(), db, ad.Domain); err != nil {
+		return nil, nil, nil, nil, ad2.ADCSCache{}, err
+	} else {
+		cache := ad2.NewADCSCache()
+		cache.BuildCache(context.Background(), db, eca, certTemplates)
+		return expansions, eca, certTemplates, domains, cache, nil
+	}
+}
+
+func TestADCSESC10a(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10aPrincipalHarness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10a")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 6, len(results))
+
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.Group1))
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.Group2))
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.Group3))
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.Group4))
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.Group5))
+				require.True(t, results.Contains(harness.ESC10aPrincipalHarness.User2))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10aHarness1.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10a")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 3, len(results))
+
+				require.True(t, results.Contains(harness.ESC10aHarness1.Group1))
+				require.True(t, results.Contains(harness.ESC10aHarness1.Group2))
+				require.True(t, results.Contains(harness.ESC10aHarness1.Group3))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10aHarness2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10a")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 4, len(results))
+
+				require.True(t, results.Contains(harness.ESC10aHarness2.Group6))
+				require.True(t, results.Contains(harness.ESC10aHarness2.Group5))
+				require.True(t, results.Contains(harness.ESC10aHarness2.Computer5))
+				require.True(t, results.Contains(harness.ESC10aHarness2.User5))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10aHarnessECA.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10a")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 1, len(results))
+
+				require.True(t, results.Contains(harness.ESC10aHarnessECA.Group1))
+
+			}
+			return nil
+		})
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchRelationships(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				assert.Equal(t, 1, len(results))
+				edge := results[0]
+
+				if edgeComp, err := ad2.GetEdgeCompositionPath(context.Background(), db, edge); err != nil {
+					t.Fatalf("error getting edge composition for esc10a: %v", err)
+				} else {
+					nodes := edgeComp.AllNodes().Slice()
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.Group1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.User1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.Domain1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.NTAuthStore1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.RootCA1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.DC1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.EnterpriseCA1)
+					assert.Contains(t, nodes, harness.ESC10aHarnessECA.CertTemplate1)
+				}
+			}
+
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10aHarnessVictim.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10a")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10a(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10a.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10a)
+			})); err != nil {
+				t.Fatalf("error fetching esc10a edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC10aHarnessVictim.Group1))
+				require.True(t, results.Contains(harness.ESC10aHarnessVictim.Group2))
+
+			}
+			return nil
+		})
+	})
+}
+
+func TestADCSESC10b(t *testing.T) {
+	testContext := integration.NewGraphTestContext(t, graphschema.DefaultGraphSchema())
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10bPrincipalHarness.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10b")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10b)
+			})); err != nil {
+				t.Fatalf("error fetching esc10b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 6, len(results))
+
+				require.True(t, results.Contains(harness.ESC10bPrincipalHarness.Group1))
+				require.True(t, results.Contains(harness.ESC10bPrincipalHarness.Group2))
+				require.True(t, results.Contains(harness.ESC10bPrincipalHarness.Group3))
+				require.True(t, results.Contains(harness.ESC10bPrincipalHarness.Group4))
+				require.True(t, results.Contains(harness.ESC10bPrincipalHarness.Group5))
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10bHarness1.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10b")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10b)
+			})); err != nil {
+				t.Fatalf("error fetching esc10b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC10bHarness1.Group1))
+				require.True(t, results.Contains(harness.ESC10bHarness1.Group2))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10bHarness2.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10b")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10b)
+			})); err != nil {
+				t.Fatalf("error fetching esc10b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC10bHarness2.Computer5))
+				require.True(t, results.Contains(harness.ESC10bHarness2.User5))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10bHarnessECA.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10b")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10b)
+			})); err != nil {
+				t.Fatalf("error fetching esc10b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 1, len(results))
+
+				require.True(t, results.Contains(harness.ESC10bHarnessECA.Group1))
+
+			}
+			return nil
+		})
+	})
+
+	testContext.DatabaseTestWithSetup(func(harness *integration.HarnessDetails) error {
+		harness.ESC10bHarnessVictim.Setup(testContext)
+		return nil
+	}, func(harness integration.HarnessDetails, db graph.Database) {
+		operation := analysis.NewPostRelationshipOperation(context.Background(), db, "ADCS Post Process Test - ESC10b")
+
+		groupExpansions, enterpriseCertAuthorities, _, domains, cache, err := FetchADCSPrereqs(db)
+		require.Nil(t, err)
+
+		for _, domain := range domains {
+			innerDomain := domain
+
+			for _, enterpriseCA := range enterpriseCertAuthorities {
+				if cache.DoesCAChainProperlyToDomain(enterpriseCA, innerDomain) {
+					innerEnterpriseCA := enterpriseCA
+
+					operation.Operation.SubmitReader(func(ctx context.Context, tx graph.Transaction, outC chan<- analysis.CreatePostRelationshipJob) error {
+						if err := ad2.PostADCSESC10b(ctx, tx, outC, groupExpansions, innerEnterpriseCA, innerDomain, cache); err != nil {
+							t.Logf("failed post processing for %s: %v", ad.ADCSESC10b.String(), err)
+						} else {
+							return nil
+						}
+
+						return nil
+					})
+				}
+			}
+		}
+		err = operation.Done()
+		require.Nil(t, err)
+
+		db.ReadTransaction(context.Background(), func(tx graph.Transaction) error {
+			if results, err := ops.FetchStartNodes(tx.Relationships().Filterf(func() graph.Criteria {
+				return query.Kind(query.Relationship(), ad.ADCSESC10b)
+			})); err != nil {
+				t.Fatalf("error fetching esc10b edges in integration test; %v", err)
+			} else {
+				require.Equal(t, 2, len(results))
+
+				require.True(t, results.Contains(harness.ESC10bHarnessVictim.Group1))
+				require.True(t, results.Contains(harness.ESC10bHarnessVictim.Group2))
+
+			}
+			return nil
+		})
 	})
 }

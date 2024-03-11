@@ -19,12 +19,13 @@ import { act, render, waitFor } from '../../test-utils';
 import GroupManagement from './GroupManagement';
 import { rest } from 'msw';
 import { createMockDomain } from 'src/mocks/factories';
-import { createMockAssetGroup, createMockAssetGroupMembers } from 'bh-shared-ui';
+import { createMockAssetGroup, createMockAssetGroupMembers, createMockMemberCounts } from 'bh-shared-ui';
 import userEvent from '@testing-library/user-event';
 
 const domain = createMockDomain();
 const assetGroup = createMockAssetGroup();
 const assetGroupMembers = createMockAssetGroupMembers();
+const memberCounts = createMockMemberCounts();
 
 const server = setupServer(
     rest.get('/api/v2/available-domains', (req, res, ctx) => {
@@ -43,6 +44,9 @@ const server = setupServer(
             })
         );
     }),
+    rest.get('/api/v2/asset-groups/1/members/counts', (req, res, ctx) => {
+        return res(ctx.json(memberCounts));
+    }),
     rest.get('*', (req, res, ctx) => res(ctx.json({ data: [] })))
 );
 
@@ -54,7 +58,13 @@ describe('GroupManagement', () => {
     const setup = async () =>
         await act(async () => {
             const user = userEvent.setup();
-            const screen = render(<GroupManagement />);
+            const screen = render(<GroupManagement />, {
+                initialState: {
+                    global: {
+                        options: { domain: null },
+                    },
+                },
+            });
             return { user, screen };
         });
 
@@ -67,6 +77,12 @@ describe('GroupManagement', () => {
         expect(screen.getByText('Environment:')).toBeInTheDocument();
         expect(groupSelector).toBeInTheDocument();
         expect(tenantSelector).toBeInTheDocument();
+    });
+
+    it('displays default text for domain selector when globalDomain is null', async () => {
+        const { screen } = await setup();
+
+        expect(screen.getByTestId('data-selector')).toBeInTheDocument();
     });
 
     it('renders an edit form for the selected asset group', async () => {

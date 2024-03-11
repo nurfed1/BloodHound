@@ -17,7 +17,6 @@
 import { useSigma } from '@react-sigma/core';
 import { setEdgeInfoOpen, setSelectedEdge } from 'bh-shared-ui';
 import { FC, useCallback } from 'react';
-import { useSelector } from 'react-redux';
 import { setEntityInfoOpen } from 'src/ducks/entityinfo/actions';
 import {
     calculateEdgeDistanceForLabel,
@@ -25,16 +24,16 @@ import {
     getEdgeLabelTextLength,
     getEdgeSourceAndTargetDisplayData,
 } from 'src/ducks/graph/utils';
+import { getBackgroundBoundInfo, getSelfEdgeStartingPoint } from 'src/rendering/programs/edge-label';
+import { getControlPointsFromGroupSize } from 'src/rendering/programs/edge.self';
 import { bezier } from 'src/rendering/utils/bezier';
-import { AppState, useAppDispatch } from 'src/store';
+import { useAppDispatch, useAppSelector } from 'src/store';
 
 const GraphEdgeEvents: FC = () => {
     const dispatch = useAppDispatch();
-    const graphState = useSelector((state: AppState) => state.explore);
+    const graphState = useAppSelector((state) => state.explore);
 
     const sigma = useSigma();
-    const camera = sigma.getCamera();
-    const ratio = camera.getState().ratio;
     const canvases = sigma.getCanvases();
     const sigmaContainer = document.getElementById('sigma-container');
     const mouseCanvas = canvases.mouse;
@@ -74,12 +73,14 @@ const GraphEdgeEvents: FC = () => {
 
     const handleEdgeEvents = useCallback(
         (event: any) => {
+            const context = edgeLabelsCanvas.getContext('2d');
+            if (!context) return;
             if (event.type === 'click' || event.type === 'mousemove') {
+                const camera = sigma.getCamera();
+                const ratio = camera.getState().ratio;
                 const inverseSqrtZoomRatio = 1 / Math.sqrt(ratio);
-
+                const size = sigma.getSettings().edgeLabelSize;
                 const graph = sigma.getGraph();
-                const size = sigma.getSettings().edgeLabelSize * inverseSqrtZoomRatio;
-                const context = edgeLabelsCanvas.getContext('2d');
                 const edges = graph.edges();
 
                 for (let i = 0; i < edges.length; i++) {
@@ -90,6 +91,7 @@ const GraphEdgeEvents: FC = () => {
                     if (edgeData === null) continue;
                     const nodeDisplayData = getEdgeSourceAndTargetDisplayData(edgeData.source, edgeData.target, sigma);
                     if (nodeDisplayData === null) continue;
+
                     const { source, target } = nodeDisplayData;
                     const sourceCoordinates = { x: source.x, y: source.y };
                     const targetCoordinates = { x: target.x, y: target.y };
@@ -100,9 +102,7 @@ const GraphEdgeEvents: FC = () => {
                         { ...sourceCoordinatesViewport, size: source.size },
                         { ...targetCoordinatesViewport, size: target.size }
                     );
-                    if (!edgeDistance.distance) continue;
-
-                    const textLength = getEdgeLabelTextLength(context!, attributes.label, edgeDistance.distance);
+                    const textLength = getEdgeLabelTextLength(context, attributes.label, edgeDistance.distance);
                     if (!textLength) continue;
 
                     let point = { x: edgeDistance.cx, y: edgeDistance.cy };
@@ -112,24 +112,52 @@ const GraphEdgeEvents: FC = () => {
                             attributes.groupPosition,
                             attributes.direction
                         );
-                        const control = bezier.getControlAtMidpoint(curveHeight, sourceCoordinates, targetCoordinates);
+                        const control = sigma.framedGraphToViewport(
+                            bezier.getControlAtMidpoint(curveHeight, sourceCoordinates, targetCoordinates)
+                        );
 
-                        point = bezier.getCoordinatesAlongCurve(
+                        point = bezier.getCoordinatesAlongQuadraticBezier(
                             sourceCoordinatesViewport,
                             targetCoordinatesViewport,
-                            sigma.framedGraphToViewport(control),
+                            control,
                             0.5
+                        );
+                    } else if (attributes.type === 'self') {
+                        const radius = bezier.getLineLength(
+                            { x: 0, y: 0 },
+                            {
+                                x: source.size * Math.pow(inverseSqrtZoomRatio, 3),
+                                y: target.size * Math.pow(inverseSqrtZoomRatio, 3),
+                            }
+                        );
+
+                        const { control2, control3 } = getControlPointsFromGroupSize(
+                            attributes.groupPosition,
+                            radius * 3,
+                            sourceCoordinatesViewport,
+                            false,
+                            true
+                        );
+
+                        point = getSelfEdgeStartingPoint(
+                            sourceCoordinatesViewport,
+                            control2,
+                            control3,
+                            sourceCoordinatesViewport
                         );
                     }
 
-                    //Determine label dimensions and position
-                    const xPadding = 4 * inverseSqrtZoomRatio;
-                    const labelWidth = textLength * 1.4 * inverseSqrtZoomRatio + 2 * xPadding;
-                    const labelHeight = size * 1.4;
-                    const x1 = point.x + (-(textLength / 2) * inverseSqrtZoomRatio - xPadding);
-                    const y1 = point.y + ((attributes.size / 2) * inverseSqrtZoomRatio - size);
-                    const x2 = x1 + labelWidth;
-                    const y2 = y1 + labelHeight;
+                    const { deltaX, deltaY, width, height } = getBackgroundBoundInfo(
+                        inverseSqrtZoomRatio,
+                        textLength,
+                        attributes.size * inverseSqrtZoomRatio,
+                        size
+                    );
+
+                    const x1 = point.x + deltaX;
+                    const y1 = point.y + deltaY;
+                    const x2 = x1 + width;
+                    const y2 = y1 + height;
 
                     const offsetY = edgeLabelsCanvas.getBoundingClientRect().y;
                     const { x: viewportX, y: viewportY } = {
@@ -163,7 +191,7 @@ const GraphEdgeEvents: FC = () => {
             mouseCanvas.dispatchEvent(customEvent);
             sigma.scheduleRefresh();
         },
-        [sigma, mouseCanvas, edgeLabelsCanvas, onClickEdge, ratio, sigmaContainer]
+        [sigma, mouseCanvas, edgeLabelsCanvas, onClickEdge, sigmaContainer]
     );
 
     return (

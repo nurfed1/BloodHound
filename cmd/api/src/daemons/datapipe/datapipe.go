@@ -20,13 +20,13 @@ package datapipe
 import (
 	"context"
 	"errors"
-	"github.com/specterops/bloodhound/src/bootstrap"
 	"sync/atomic"
 	"time"
 
 	"github.com/specterops/bloodhound/cache"
 	"github.com/specterops/bloodhound/dawgs/graph"
 	"github.com/specterops/bloodhound/log"
+	"github.com/specterops/bloodhound/src/bootstrap"
 	"github.com/specterops/bloodhound/src/config"
 	"github.com/specterops/bloodhound/src/database"
 	"github.com/specterops/bloodhound/src/model"
@@ -40,6 +40,7 @@ const (
 
 type Tasker interface {
 	RequestAnalysis()
+	RequestDeletion()
 	GetStatus() model.DatapipeStatusWrapper
 }
 
@@ -49,6 +50,7 @@ type Daemon struct {
 	cache               cache.Cache
 	cfg                 config.Configuration
 	analysisRequested   *atomic.Bool
+	deletionRequested   *atomic.Bool
 	tickInterval        time.Duration
 	status              model.DatapipeStatusWrapper
 	ctx                 context.Context
@@ -66,6 +68,7 @@ func NewDaemon(ctx context.Context, cfg config.Configuration, connections bootst
 		cache:               cache,
 		cfg:                 cfg,
 		ctx:                 ctx,
+		deletionRequested:   &atomic.Bool{},
 		analysisRequested:   &atomic.Bool{},
 		orphanedFileSweeper: NewOrphanFileSweeper(NewOSFileOperations(), cfg.TempDirectory()),
 		tickInterval:        tickInterval,
@@ -77,7 +80,16 @@ func NewDaemon(ctx context.Context, cfg config.Configuration, connections bootst
 }
 
 func (s *Daemon) RequestAnalysis() {
+	if s.getDeletionRequested() {
+		log.Warnf("Rejecting analysis request as deletion is in progress")
+		return
+	}
 	s.setAnalysisRequested(true)
+}
+
+func (s *Daemon) RequestDeletion() {
+	s.setAnalysisRequested(false)
+	s.setDeletionRequested(true)
 }
 
 func (s *Daemon) GetStatus() model.DatapipeStatusWrapper {
@@ -90,6 +102,14 @@ func (s *Daemon) getAnalysisRequested() bool {
 
 func (s *Daemon) setAnalysisRequested(requested bool) {
 	s.analysisRequested.Store(requested)
+}
+
+func (s *Daemon) setDeletionRequested(requested bool) {
+	s.deletionRequested.Store(requested)
+}
+
+func (s *Daemon) getDeletionRequested() bool {
+	return s.deletionRequested.Load()
 }
 
 func (s *Daemon) analyze() {
@@ -115,7 +135,7 @@ func (s *Daemon) analyze() {
 	} else {
 		CompleteAnalyzedFileUploadJobs(s.ctx, s.db)
 
-		if entityPanelCachingFlag, err := s.db.GetFlagByKey(appcfg.FeatureEntityPanelCaching); err != nil {
+		if entityPanelCachingFlag, err := s.db.GetFlagByKey(s.ctx, appcfg.FeatureEntityPanelCaching); err != nil {
 			log.Errorf("Error retrieving entity panel caching flag: %v", err)
 		} else {
 			resetCache(s.cache, entityPanelCachingFlag.Enabled)
@@ -134,14 +154,14 @@ func resetCache(cacher cache.Cache, cacheEnabled bool) {
 }
 
 func (s *Daemon) ingestAvailableTasks() {
-	if ingestTasks, err := s.db.GetAllIngestTasks(); err != nil {
+	if ingestTasks, err := s.db.GetAllIngestTasks(s.ctx); err != nil {
 		log.Errorf("Failed fetching available ingest tasks: %v", err)
 	} else {
 		s.processIngestTasks(s.ctx, ingestTasks)
 	}
 }
 
-func (s *Daemon) Start() {
+func (s *Daemon) Start(ctx context.Context) {
 	var (
 		datapipeLoopTimer = time.NewTimer(s.tickInterval)
 		pruningTicker     = time.NewTicker(pruningInterval)
@@ -158,6 +178,10 @@ func (s *Daemon) Start() {
 			s.clearOrphanedData()
 
 		case <-datapipeLoopTimer.C:
+			if s.getDeletionRequested() {
+				s.deleteData()
+			}
+
 			// Ingest all available ingest tasks
 			s.ingestAvailableTasks()
 
@@ -168,7 +192,7 @@ func (s *Daemon) Start() {
 			ProcessIngestedFileUploadJobs(s.ctx, s.db)
 
 			// If there are completed file upload jobs or if analysis was user-requested, perform analysis.
-			if hasJobsWaitingForAnalysis, err := HasFileUploadJobsWaitingForAnalysis(s.db); err != nil {
+			if hasJobsWaitingForAnalysis, err := HasFileUploadJobsWaitingForAnalysis(s.ctx, s.db); err != nil {
 				log.Errorf("Failed looking up jobs waiting for analysis: %v", err)
 			} else if hasJobsWaitingForAnalysis || s.getAnalysisRequested() {
 				s.analyze()
@@ -182,12 +206,31 @@ func (s *Daemon) Start() {
 	}
 }
 
+func (s *Daemon) deleteData() {
+	defer func() {
+		s.status.Update(model.DatapipeStatusIdle, false)
+		s.setDeletionRequested(false)
+		s.setAnalysisRequested(true)
+	}()
+	defer log.Measure(log.LevelInfo, "Purge Graph Data Completed")()
+	s.status.Update(model.DatapipeStatusPurging, false)
+	log.Infof("Begin Purge Graph Data")
+
+	if err := s.db.CancelAllFileUploads(s.ctx); err != nil {
+		log.Errorf("Error cancelling jobs during data deletion: %v", err)
+	} else if err := s.db.DeleteAllIngestTasks(s.ctx); err != nil {
+		log.Errorf("Error deleting ingest tasks during data deletion: %v", err)
+	} else if err := DeleteCollectedGraphData(s.ctx, s.graphdb); err != nil {
+		log.Errorf("Error deleting graph data: %v", err)
+	}
+}
+
 func (s *Daemon) Stop(ctx context.Context) error {
 	return nil
 }
 
 func (s *Daemon) clearOrphanedData() {
-	if ingestTasks, err := s.db.GetAllIngestTasks(); err != nil {
+	if ingestTasks, err := s.db.GetAllIngestTasks(s.ctx); err != nil {
 		log.Errorf("Failed fetching available file upload ingest tasks: %v", err)
 	} else {
 		expectedFiles := make([]string, len(ingestTasks))

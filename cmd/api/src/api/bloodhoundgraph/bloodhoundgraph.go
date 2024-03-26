@@ -16,6 +16,8 @@
 
 package bloodhoundgraph
 
+//TODO: Move styling responsibilites to the UI or move shared styling definitions to a cue file to generate from one source of truth
+
 type BloodHoundGraphGlyph struct {
 	Angle    int                        `json:"angle,omitempty"`
 	Blink    bool                       `json:"blink,omitempty"`
@@ -62,22 +64,6 @@ type BloodHoundGraphNodeBorder struct {
 type BloodHoundGraphNodeCoords struct {
 	Latitude  int `json:"lat,omitempty"`
 	Longitude int `json:"lng,omitempty"`
-}
-
-type BloodHoundGraphNodeDonutBorder struct {
-	Color string `json:"color,omitempty"`
-	Width int    `json:"width,omitempty"`
-}
-
-type BloodHoundGraphNodeDonutSegment struct {
-	Color string `json:"color,omitempty"`
-	Size  int    `json:"size,omitempty"`
-}
-
-type BloodHoundGraphNodeDonut struct {
-	Border   *BloodHoundGraphNodeDonutBorder    `json:"border,omitempty"`
-	Segments *[]BloodHoundGraphNodeDonutSegment `json:"segments,omitempty"`
-	Width    int                                `json:"number,omitempty"`
 }
 
 type BloodHoundGraphNodeHalo struct {
@@ -250,7 +236,7 @@ func (s *BloodHoundGraphNode) SetIcon(nType string) {
 		}
 	case "AIACA":
 		s.FontIcon = &BloodHoundGraphFontIcon{
-			Text: "fa-box",
+			Text: "fa-arrows-left-right-to-line",
 		}
 	case "RootCA":
 		s.FontIcon = &BloodHoundGraphFontIcon{

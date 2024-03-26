@@ -18,18 +18,57 @@ package model
 
 import (
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/specterops/bloodhound/src/database/types"
 )
 
-type AuditEntryStatus string
+type AuditLogEntryStatus string
 
 const (
-	AuditStatusSuccess AuditEntryStatus = "success"
-	AuditStatusFailure AuditEntryStatus = "failure"
-	AuditStatusIntent  AuditEntryStatus = "intent"
+	AuditLogStatusSuccess AuditLogEntryStatus = "success"
+	AuditLogStatusFailure AuditLogEntryStatus = "failure"
+	AuditLogStatusIntent  AuditLogEntryStatus = "intent"
+)
+
+type AuditLogAction string
+
+const (
+	AuditLogActionAcceptEULA AuditLogAction = "AcceptEULA"
+
+	AuditLogActionLoginAttempt              AuditLogAction = "LoginAttempt"
+	AuditLogActionUnauthorizedAccessAttempt AuditLogAction = "UnauthorizedAccessAttempt"
+
+	AuditLogActionCreateUser AuditLogAction = "CreateUser"
+	AuditLogActionUpdateUser AuditLogAction = "UpdateUser"
+	AuditLogActionDeleteUser AuditLogAction = "DeleteUser"
+
+	AuditLogActionCreateAssetGroup AuditLogAction = "CreateAssetGroup"
+	AuditLogActionUpdateAssetGroup AuditLogAction = "UpdateAssetGroup"
+	AuditLogActionDeleteAssetGroup AuditLogAction = "DeleteAssetGroup"
+
+	AuditLogActionDeleteAssetGroupSelector AuditLogAction = "DeleteAssetGroupSelector"
+
+	AuditLogActionCreateAuthToken AuditLogAction = "CreateAuthToken"
+	AuditLogActionDeleteAuthToken AuditLogAction = "DeleteAuthToken"
+
+	AuditLogActionCreateAuthSecret AuditLogAction = "CreateAuthSecret"
+	AuditLogActionUpdateAuthSecret AuditLogAction = "UpdateAuthSecret"
+	AuditLogActionDeleteAuthSecret AuditLogAction = "DeleteAuthSecret"
+
+	AuditLogActionCreateSAMLIdentityProvider AuditLogAction = "CreateSAMLIdentityProvider"
+	AuditLogActionUpdateSAMLIdentityProvider AuditLogAction = "UpdateSAMLIdentityProvider"
+	AuditLogActionDeleteSAMLIdentityProvider AuditLogAction = "DeleteSAMLIdentityProvider"
+
+	AuditLogActionAcceptRisk   AuditLogAction = "AcceptRisk"
+	AuditLogActionUnacceptRisk AuditLogAction = "UnacceptRisk"
+
+	AuditLogActionExportRelationshipRisks AuditLogAction = "ExportRelationshipRisks"
+	AuditLogActionExportListRisks         AuditLogAction = "ExportListRisks"
+
+	AuditLogActionDeleteBloodhoundData AuditLogAction = "DeleteBloodhoundData"
 )
 
 // TODO embed Basic into this struct instead of declaring the ID and CreatedAt fields. This will require a migration
@@ -39,7 +78,7 @@ type AuditLog struct {
 	ActorID         string                  `json:"actor_id" gorm:"index"`
 	ActorName       string                  `json:"actor_name"`
 	ActorEmail      string                  `json:"actor_email"`
-	Action          string                  `json:"action" gorm:"index"`
+	Action          AuditLogAction          `json:"action" gorm:"index"`
 	Fields          types.JSONUntypedObject `json:"fields"`
 	RequestID       string                  `json:"request_id"`
 	SourceIpAddress string                  `json:"source_ip_address"`
@@ -56,11 +95,9 @@ type AuditLogs []AuditLog
 func (s AuditLogs) IsSortable(column string) bool {
 	switch column {
 	case "id",
-		"actor_id",
 		"actor_name",
 		"actor_email",
 		"action",
-		"request_id",
 		"created_at",
 		"source_ip_address",
 		"status":
@@ -150,10 +187,31 @@ type Auditable interface {
 
 type AuditEntry struct {
 	CommitID uuid.UUID
-	Action   string
+	Action   AuditLogAction
 	Model    Auditable
-	Status   AuditEntryStatus
+	Status   AuditLogEntryStatus
 	ErrorMsg string
+}
+
+// Necessary function for testing. Ensures all fields except CommitID match so mocking checks pass.
+func (s AuditEntry) Matches(x any) bool {
+	if expected, ok := x.(AuditEntry); !ok {
+		return false
+	} else if s.Action != expected.Action {
+		return false
+	} else if s.ErrorMsg != expected.ErrorMsg {
+		return false
+	} else if s.Status != expected.Status {
+		return false
+	} else if !reflect.DeepEqual(s.Model, expected.Model) {
+		return false
+	}
+
+	return true
+}
+
+func (s AuditEntry) String() string {
+	return fmt.Sprintf("%#v", s)
 }
 
 type AuditableURL string

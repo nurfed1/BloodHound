@@ -77,6 +77,7 @@ import Enroll from './Enroll/Enroll';
 import EnrollOnBehalfOf from './EnrollOnBehalfOf/EnrollOnBehalfOf';
 import EnterpriseCAFor from './EnterpriseCAFor/EnterpriseCAFor';
 import ExecuteDCOM from './ExecuteDCOM/ExecuteDCOM';
+import ExtendedByPolicy from './ExtendedByPolicy/ExtendedByPolicy';
 import ForceChangePassword from './ForceChangePassword/ForceChangePassword';
 import GPLink from './GPLink/GPLink';
 import GenericAll from './GenericAll/GenericAll';
@@ -92,6 +93,7 @@ import ManageCA from './ManageCA/ManageCA';
 import ManageCertificates from './ManageCertificates/ManageCertificates';
 import MemberOf from './MemberOf/MemberOf';
 import NTAuthStoreFor from './NTAuthStoreFor/NTAuthStoreFor';
+import OIDGroupLink from './OIDGroupLink/OIDGroupLink';
 import Owns from './Owns/Owns';
 import PublishedTo from './PublishedTo/PublishedTo';
 import ReadGMSAPassword from './ReadGMSAPassword/ReadGMSAPassword';
@@ -116,6 +118,7 @@ import ADCSESC9a from './ADCSESC9a/ADCSESC9a';
 import ADCSESC9b from './ADCSESC9b/ADCSESC9b';
 import ADCSESC10a from './ADCSESC10a/ADCSESC10a';
 import ADCSESC10b from './ADCSESC10b/ADCSESC10b';
+import ADCSESC13 from './ADCSESC13/ADCSESC13';
 
 export type EdgeInfoProps = {
     edgeName?: string;
@@ -225,11 +228,14 @@ const EdgeInfoComponents = {
     ADCSESC9b: ADCSESC9b,
     ADCSESC10a: ADCSESC10a,
     ADCSESC10b: ADCSESC10b,
+    ADCSESC13: ADCSESC13,
     ManageCA: ManageCA,
     ManageCertificates: ManageCertificates,
     WritePKIEnrollmentFlag: WritePKIEnrollmentFlag,
     WritePKINameFlag: WritePKINameFlag,
     DCFor: DCFor,
+    OIDGroupLink: OIDGroupLink,
+    ExtendedByPolicy: ExtendedByPolicy,
 };
 
 export default EdgeInfoComponents;

@@ -22,6 +22,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/specterops/bloodhound/dawgs/util"
 	"net/http"
 	"net/url"
 	"sort"
@@ -373,44 +374,45 @@ type preparedQuery struct {
 
 func (s *GraphQuery) prepareGraphQuery(rawCypher string, disableCypherQC bool) (preparedQuery, error) {
 	var (
-		parseCtx   = frontend.DefaultCypherContext()
-		buffer     = &bytes.Buffer{}
-		graphQuery preparedQuery
+		parseCtx            = frontend.DefaultCypherContext()
+		queryBuffer         = &bytes.Buffer{}
+		strippedQueryBuffer = &bytes.Buffer{}
+		graphQuery          preparedQuery
 	)
 
 	if queryModel, err := frontend.ParseCypher(parseCtx, rawCypher); err != nil {
 		return graphQuery, newQueryError(err)
 	} else if complexityMeasure, err := analyzer.QueryComplexity(queryModel); err != nil {
 		return graphQuery, newQueryError(err)
+	} else if err = s.strippedCypherEmitter.Write(queryModel, strippedQueryBuffer); err != nil {
+		return graphQuery, newQueryError(err)
 	} else if !disableCypherQC && complexityMeasure.Weight > MaxQueryComplexityWeightAllowed {
+		// log query details if it is rejected due to high complexity
+		highComplexityLog := log.WithLevel(log.LevelError)
+		highComplexityLog.Str("query", strippedQueryBuffer.String())
+		highComplexityLog.Msg(fmt.Sprintf("Query rejected. Query weight: %.2f. Maximum allowed weight: %d", complexityMeasure.Weight, MaxQueryComplexityWeightAllowed))
+
 		return graphQuery, newQueryError(ErrCypherQueryToComplex)
 	} else if pgDB, isPG := s.Graph.(*pg.Driver); isPG {
 		if _, err := pgsql.Translate(queryModel, pgDB.KindMapper()); err != nil {
 			return graphQuery, newQueryError(err)
 		}
 
-		if err := pgsql.NewEmitter(false, pgDB.KindMapper()).Write(queryModel, buffer); err != nil {
+		if err := pgsql.NewEmitter(false, pgDB.KindMapper()).Write(queryModel, queryBuffer); err != nil {
 			return graphQuery, err
 		} else {
-			graphQuery.query = buffer.String()
+			graphQuery.query = queryBuffer.String()
 		}
 
 		return graphQuery, nil
 	} else {
+		graphQuery.strippedQuery = strippedQueryBuffer.String()
 		graphQuery.complexity = complexityMeasure
 
-		if err := s.cypherEmitter.Write(queryModel, buffer); err != nil {
+		if err = s.cypherEmitter.Write(queryModel, queryBuffer); err != nil {
 			return graphQuery, newQueryError(err)
 		} else {
-			graphQuery.query = buffer.String()
-		}
-
-		buffer.Reset()
-
-		if err := s.strippedCypherEmitter.Write(queryModel, buffer); err != nil {
-			return graphQuery, newQueryError(err)
-		} else {
-			graphQuery.strippedQuery = buffer.String()
+			graphQuery.query = queryBuffer.String()
 		}
 	}
 
@@ -423,15 +425,16 @@ func (s *GraphQuery) RawCypherSearch(ctx context.Context, rawCypher string, incl
 		bhCtxInst     = bhCtx.Get(ctx)
 	)
 
-	if preparedQuery, err := s.prepareGraphQuery(rawCypher, s.DisableCypherQC); err != nil {
+	if graphQuery, err := s.prepareGraphQuery(rawCypher, s.DisableCypherQC); err != nil {
 		return graphResponse, err
 	} else {
 		logEvent := log.WithLevel(log.LevelInfo)
-		logEvent.Str("query", preparedQuery.strippedQuery)
+		logEvent.Str("query", graphQuery.strippedQuery)
+		logEvent.Str("query cost", fmt.Sprintf("%.2f", graphQuery.complexity.Weight))
 		logEvent.Msg("Executing user cypher query")
 
-		return graphResponse, s.Graph.ReadTransaction(ctx, func(tx graph.Transaction) error {
-			if pathSet, err := ops.FetchPathSetByQuery(tx, preparedQuery.query); err != nil {
+		transactionErr := s.Graph.ReadTransaction(ctx, func(tx graph.Transaction) error {
+			if pathSet, err := ops.FetchPathSetByQuery(tx, graphQuery.query); err != nil {
 				return err
 			} else {
 				graphResponse.AddPathSet(pathSet, includeProperties)
@@ -439,22 +442,31 @@ func (s *GraphQuery) RawCypherSearch(ctx context.Context, rawCypher string, incl
 
 			return nil
 		}, func(config *graph.TransactionConfig) {
-			// The upperbound for this query must be either the custom request timeout, or if it isn't
-			// supplied then 30 minutes- since that's a reasonable duration at which to deem the transaction
-			// as having been stuck in a deadlock or other error
+			// The upperbound for this query must be either the custom request timeout (capped at maxRuntime
+			// below), or if it isn't supplied then 15 minutes- since longer timeouts may call OOM kills.
+			var (
+				maxTimeout     = 30 * time.Minute
+				defaultTimeout = 15 * time.Minute
+			)
+
+			if bhCtxInst.Timeout > maxTimeout {
+				log.Debugf("Custom timeout is too large, using the maximum allowable timeout of %.2f seconds instead", maxTimeout.Seconds())
+				bhCtxInst.Timeout = maxTimeout
+			}
+
 			availableRuntime := bhCtxInst.Timeout
 			if availableRuntime > 0 {
 				log.Debugf("Available timeout for query is set to: %.2f seconds", availableRuntime.Seconds())
 			} else {
-				availableRuntime = time.Minute * 30
+				availableRuntime = defaultTimeout
 
 				if !s.DisableCypherQC {
 					// The weight of the query is divided by 5 to get a runtime reduction factor. This means that query weights
 					// of 5 or less will get the full runtime duration.
-					if reductionFactor := time.Duration(preparedQuery.complexity.Weight) / 5; reductionFactor > 0 {
+					if reductionFactor := time.Duration(graphQuery.complexity.Weight) / 5; reductionFactor > 0 {
 						availableRuntime /= reductionFactor
 
-						log.Infof("Cypher query cost is: %.2f. Reduction factor for query is: %d. Available timeout for query is now set to: %.2f minutes", preparedQuery.complexity.Weight, reductionFactor, availableRuntime.Minutes())
+						log.Infof("Cypher query cost is: %.2f. Reduction factor for query is: %d. Available timeout for query is now set to: %.2f minutes", graphQuery.complexity.Weight, reductionFactor, availableRuntime.Minutes())
 					}
 				}
 			}
@@ -462,6 +474,16 @@ func (s *GraphQuery) RawCypherSearch(ctx context.Context, rawCypher string, incl
 			// Set the timeout for this DB interaction
 			config.Timeout = availableRuntime
 		})
+
+		// Log query details if neo4j times out
+		if util.IsNeoTimeoutError(transactionErr) {
+			timeoutLog := log.WithLevel(log.LevelError)
+			timeoutLog.Str("query", graphQuery.strippedQuery)
+			timeoutLog.Str("query cost", fmt.Sprintf("%.2f", graphQuery.complexity.Weight))
+			timeoutLog.Msg("Neo4j timed out while executing cypher query")
+		}
+
+		return graphResponse, transactionErr
 	}
 }
 
@@ -584,7 +606,7 @@ func (s *GraphQuery) GetEntityCountResults(ctx context.Context, node *graph.Node
 			defer waitGroup.Done()
 
 			if result, err := runEntityQuery(ctx, s.Graph, delegate, node, 0, 0); err != nil {
-				log.Errorf("error running entity query for key %s: %v", delegateKey, err)
+				log.Errorf("Error running entity query for key %s: %v", delegateKey, err)
 				data.Store(delegateKey, 0)
 			} else {
 				data.Store(delegateKey, result.Len())

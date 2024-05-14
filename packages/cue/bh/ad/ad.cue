@@ -98,6 +98,20 @@ IsUserSpecifiesSanEnabledCollected: types.#StringEnum & {
 	representation: "isuserspecifiessanenabledcollected"
 }
 
+RoleSeparationEnabled: types.#StringEnum & {
+	symbol: 		"RoleSeparationEnabled"
+	schema: 		"ad"
+	name:           "Role Separation Enabled"
+	representation: "roleseparationenabled"
+}
+
+RoleSeparationEnabledCollected: types.#StringEnum & {
+	symbol: 		"RoleSeparationEnabledCollected"
+	schema: 		"ad"
+	name:           "Role Separation Enabled Collected"
+	representation: "roleseparationenabledcollected"
+}
+
 HasBasicConstraints: types.#StringEnum & {
 	symbol: 		"HasBasicConstraints"
 	schema: 		"ad"
@@ -525,6 +539,34 @@ OID: types.#StringEnum & {
 	representation: "oid"
 }
 
+CertificatePolicy: types.#StringEnum & {
+	symbol: "CertificatePolicy"
+	schema: "ad"
+	name: "Issuance Policy Extensions"
+	representation: "certificatepolicy"
+}
+
+CertTemplateOID: types.#StringEnum & {
+	symbol: "CertTemplateOID"
+	schema: "ad"
+	name: "Certificate Template OID"
+	representation: "certtemplateoid"
+}
+
+GroupLinkID: types.#StringEnum & {
+	symbol: "GroupLinkID"
+	schema: "ad"
+	name: "Group Link ID"
+	representation: "grouplinkid"
+}
+
+ObjectGUID: types.#StringEnum & {
+	symbol: "ObjectGUID"
+	schema: "ad"
+	name: "Object GUID"
+	representation: "objectguid"
+}
+
 Properties: [
 	AdminCount,
 	CASecurityCollected,
@@ -537,6 +579,8 @@ Properties: [
 	EnrollmentAgentRestrictionsCollected,
 	IsUserSpecifiesSanEnabled,
 	IsUserSpecifiesSanEnabledCollected,
+	RoleSeparationEnabled,
+	RoleSeparationEnabledCollected,
 	HasBasicConstraints,
 	BasicConstraintPathLength,
 	DNSHostname,
@@ -596,7 +640,11 @@ Properties: [
 	RenewalPeriod,
 	ValidityPeriod,
 	OID,
-	HomeDirectory
+	HomeDirectory,
+	CertificatePolicy,
+	CertTemplateOID,
+	GroupLinkID,
+	ObjectGUID
 ]
 
 // Kinds
@@ -678,6 +726,11 @@ CertTemplate: types.#Kind & {
 	schema: "active_directory"
 }
 
+IssuancePolicy: types.#Kind & {
+	symbol: "IssuancePolicy"
+	schema: "active_directory"
+}
+
 NodeKinds: [
 	Entity,
 	User,
@@ -693,7 +746,8 @@ NodeKinds: [
 	RootCA,
 	EnterpriseCA,
 	NTAuthStore,
-	CertTemplate
+	CertTemplate,
+	IssuancePolicy
 ]
 
 Owns: types.#Kind & {
@@ -972,6 +1026,21 @@ EnrollOnBehalfOf: types.#Kind & {
 	schema: "active_directory"
 }
 
+OIDGroupLink: types.#Kind & {
+	symbol: "OIDGroupLink"
+	schema: "active_directory"
+}
+
+ExtendedByPolicy: types.#Kind & {
+	symbol: "ExtendedByPolicy"
+	schema: "active_directory"
+}
+
+ExtendedByPolicy: types.#Kind & {
+	symbol: "ExtendedByPolicy"
+	schema: "active_directory"
+}
+
 ADCSESC1: types.#Kind & {
 	symbol: "ADCSESC1"
 	schema: "active_directory"
@@ -1024,6 +1093,11 @@ ADCSESC10a: types.#Kind & {
 
 ADCSESC10b: types.#Kind & {
 	symbol: "ADCSESC10b"
+	schema: "active_directory"
+}
+
+ADCSESC13: types.#Kind & {
+	symbol: "ADCSESC13"
 	schema: "active_directory"
 }
 
@@ -1084,6 +1158,8 @@ RelationshipKinds: [
 	IssuedSignedBy,
 	GoldenCert,
 	EnrollOnBehalfOf,
+	OIDGroupLink,
+	ExtendedByPolicy,
 	ADCSESC1,
 	ADCSESC3,
 	ADCSESC4,
@@ -1094,7 +1170,8 @@ RelationshipKinds: [
 	ADCSESC9a,
 	ADCSESC9b,
 	ADCSESC10a,
-	ADCSESC10b
+	ADCSESC10b,
+	ADCSESC13
 ]
 
 // ACL Relationships
@@ -1171,6 +1248,7 @@ PathfindingRelationships: [
 	ADCSESC9b,
 	ADCSESC10a,
 	ADCSESC10b,
+	ADCSESC13,
 	DCFor
 ]
 
@@ -1185,4 +1263,5 @@ EdgeCompositionRelationships: [
 	ADCSESC9b,
 	ADCSESC10a,
 	ADCSESC10b,
+	ADCSESC13
 ]

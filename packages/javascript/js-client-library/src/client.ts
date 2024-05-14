@@ -15,23 +15,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import axios, { AxiosInstance } from 'axios';
-import * as types from './types';
 import {
-    BasicResponse,
-    CreateAuthTokenResponse,
-    ListAuthTokensResponse,
+    ActiveDirectoryDataQualityResponse,
+    AssetGroupMemberCountsResponse,
     AssetGroupMembersResponse,
     AssetGroupResponse,
+    AzureDataQualityResponse,
+    BasicResponse,
+    CreateAuthTokenResponse,
+    EndFileIngestResponse,
+    ListAuthTokensResponse,
+    ListFileIngestJobsResponse,
+    ListFileTypesForIngestResponse,
     PaginatedResponse,
     PostureResponse,
     SavedQuery,
-    AssetGroupMemberCountsResponse,
     StartFileIngestResponse,
-    ListFileTypesForIngestResponse,
-    ListFileIngestJobsResponse,
     UploadFileToIngestResponse,
-    EndFileIngestResponse,
 } from './responses';
+import * as types from './types';
 
 class BHEAPIClient {
     baseClient: AxiosInstance;
@@ -186,7 +188,7 @@ class BHEAPIClient {
         sort_by?: string,
         options?: types.RequestOptions
     ) => {
-        return this.baseClient.get(
+        return this.baseClient.get<ActiveDirectoryDataQualityResponse>(
             `/api/v2/ad-domains/${domainId}/data-quality-stats`,
             Object.assign(
                 {
@@ -210,7 +212,7 @@ class BHEAPIClient {
         sort_by?: string,
         options?: types.RequestOptions
     ) => {
-        return this.baseClient.get(
+        return this.baseClient.get<AzureDataQualityResponse>(
             `/api/v2/azure-tenants/${tenantId}/data-quality-stats`,
             Object.assign(
                 {
@@ -407,7 +409,14 @@ class BHEAPIClient {
     createEvent = (
         event: types.CreateSharpHoundEventRequest | types.CreateAzureHoundEventRequest,
         options?: types.RequestOptions
-    ) => this.baseClient.post('/api/v2/events', event, options);
+    ) =>
+        this.baseClient.post('/api/v2/events', event, {
+            params: {
+                hydrate_ous: false,
+                hydrate_domains: false,
+            },
+            ...options,
+        });
 
     updateEvent = (
         eventId: string,
@@ -708,19 +717,7 @@ class BHEAPIClient {
             options
         );
 
-    updateUser = (
-        userId: string,
-        user: {
-            firstName: string;
-            lastName: string;
-            emailAddress: string;
-            principal: string;
-            roles: number[];
-            SAMLProviderId?: string;
-            is_disabled?: boolean;
-        },
-        options?: types.RequestOptions
-    ) =>
+    updateUser = (userId: string, user: types.UpdateUserRequest, options?: types.RequestOptions) =>
         this.baseClient.patch(
             `/api/v2/bloodhound-users/${userId}`,
             {
@@ -2195,6 +2192,61 @@ class BHEAPIClient {
     ) =>
         this.baseClient.get(
             `/api/v2/certtemplates/${id}/controllers`,
+            Object.assign(
+                {
+                    params: {
+                        skip,
+                        limit,
+                        type,
+                    },
+                },
+                options
+            )
+        );
+
+    getIssuancePolicyV2 = (id: string, counts?: boolean, options?: types.RequestOptions) =>
+        this.baseClient.get(
+            `/api/v2/issuancepolicies/${id}`,
+            Object.assign(
+                {
+                    params: {
+                        counts,
+                    },
+                },
+                options
+            )
+        );
+
+    getIssuancePolicyControllersV2 = (
+        id: string,
+        skip?: number,
+        limit?: number,
+        type?: string,
+        options?: types.RequestOptions
+    ) =>
+        this.baseClient.get(
+            `/api/v2/issuancepolicies/${id}/controllers`,
+            Object.assign(
+                {
+                    params: {
+                        skip,
+                        limit,
+                        type,
+                    },
+                },
+                options
+            )
+        );
+
+    getIssuancePolicyLinkedTemplatesV2 = (
+        id: string,
+        skip?: number,
+        limit?: number,
+        type?: string,
+        options?: types.RequestOptions
+    ) =>
+        this.baseClient.get(
+            `/api/v2/issuancepolicies/${id}/linkedtemplates`,
             Object.assign(
                 {
                     params: {

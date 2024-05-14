@@ -1,3 +1,19 @@
+// Copyright 2024 Specter Ops, Inc.
+//
+// Licensed under the Apache License, Version 2.0
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
 package ingest
 
 import (
@@ -59,6 +75,8 @@ func (s Metadata) MatchKind() (graph.Kind, bool) {
 
 	case DataTypeCertTemplate:
 		return ad.CertTemplate, true
+	case DataTypeIssuancePolicy:
+		return ad.IssuancePolicy, true
 	}
 
 	return nil, false
@@ -67,22 +85,23 @@ func (s Metadata) MatchKind() (graph.Kind, bool) {
 type DataType string
 
 const (
-	DataTypeSession      DataType = "sessions"
-	DataTypeUser         DataType = "users"
-	DataTypeGroup        DataType = "groups"
-	DataTypeComputer     DataType = "computers"
-	DataTypeGPO          DataType = "gpos"
-	DataTypeOU           DataType = "ous"
-	DataTypeDomain       DataType = "domains"
-	DataTypeRemoved      DataType = "deleted"
-	DataTypeContainer    DataType = "containers"
-	DataTypeLocalGroups  DataType = "localgroups"
-	DataTypeAIACA        DataType = "aiacas"
-	DataTypeRootCA       DataType = "rootcas"
-	DataTypeEnterpriseCA DataType = "enterprisecas"
-	DataTypeNTAuthStore  DataType = "ntauthstores"
-	DataTypeCertTemplate DataType = "certtemplates"
-	DataTypeAzure        DataType = "azure"
+	DataTypeSession        DataType = "sessions"
+	DataTypeUser           DataType = "users"
+	DataTypeGroup          DataType = "groups"
+	DataTypeComputer       DataType = "computers"
+	DataTypeGPO            DataType = "gpos"
+	DataTypeOU             DataType = "ous"
+	DataTypeDomain         DataType = "domains"
+	DataTypeRemoved        DataType = "deleted"
+	DataTypeContainer      DataType = "containers"
+	DataTypeLocalGroups    DataType = "localgroups"
+	DataTypeAIACA          DataType = "aiacas"
+	DataTypeRootCA         DataType = "rootcas"
+	DataTypeEnterpriseCA   DataType = "enterprisecas"
+	DataTypeNTAuthStore    DataType = "ntauthstores"
+	DataTypeCertTemplate   DataType = "certtemplates"
+	DataTypeAzure          DataType = "azure"
+	DataTypeIssuancePolicy DataType = "issuancepolicies"
 )
 
 func AllIngestDataTypes() []DataType {
@@ -103,6 +122,7 @@ func AllIngestDataTypes() []DataType {
 		DataTypeNTAuthStore,
 		DataTypeCertTemplate,
 		DataTypeAzure,
+		DataTypeIssuancePolicy,
 	}
 }
 

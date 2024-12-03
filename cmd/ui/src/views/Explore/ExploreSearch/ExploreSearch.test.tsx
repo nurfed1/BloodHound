@@ -24,15 +24,13 @@ import {
 } from 'bh-shared-ui';
 import { rest } from 'msw';
 import { setupServer } from 'msw/node';
-import { act, render, screen, waitFor } from 'src/test-utils';
+import { act, render, screen } from 'src/test-utils';
 import ExploreSearch from '.';
 
 describe('ExploreSearch rendering per tab', async () => {
-    let container: HTMLElement;
     beforeEach(async () => {
         await act(async () => {
-            const { container: c } = render(<ExploreSearch />);
-            container = c;
+            render(<ExploreSearch />);
         });
     });
     const user = userEvent.setup();
@@ -62,10 +60,10 @@ describe('ExploreSearch rendering per tab', async () => {
 
         await user.click(cypherTab);
 
-        expect(screen.getByText(/cypher search/i)).toBeInTheDocument();
+        expect(screen.getByText(/cypher query/i)).toBeInTheDocument();
 
         expect(screen.getByRole('link', { name: /help/i })).toBeInTheDocument();
-        expect(screen.getByRole('button', { name: /search/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /run/i })).toBeInTheDocument();
     });
 
     it('should hide/expand search widget when user clicks minus/plus button', async () => {
@@ -75,9 +73,6 @@ describe('ExploreSearch rendering per tab', async () => {
         const toggleWidgetButton = screen.getByRole('button', { name: /minus/i });
 
         await user.click(toggleWidgetButton);
-
-        // mui applies 300ms of animation to the collapse element, so we need to wait for the hidden class to be in the document
-        await waitFor(() => expect(container.querySelector('.MuiCollapse-hidden')).toBeInTheDocument());
 
         expect(widgetBody).not.toBeVisible();
         // button changes from minus to plus

@@ -18,16 +18,16 @@ package graph
 
 import (
 	"encoding/json"
-	"github.com/RoaringBitmap/roaring"
 	"math"
 	"sync"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/specterops/bloodhound/dawgs/cardinality"
 	"github.com/specterops/bloodhound/dawgs/util/size"
 )
 
 const (
-	UnregisteredNodeID ID = math.MaxUint32
+	UnregisteredNodeID ID = math.MaxInt64
 )
 
 func PrepareNode(properties *Properties, kinds ...Kind) *Node {
@@ -77,7 +77,11 @@ func (s *Node) Merge(other *Node) {
 }
 
 func (s *Node) SizeOf() size.Size {
-	nodeSize := size.Of(s) + s.Kinds.SizeOf()
+	nodeSize := size.Of(s) +
+		s.ID.Sizeof() +
+		s.Kinds.SizeOf() +
+		s.AddedKinds.SizeOf() +
+		s.DeletedKinds.SizeOf()
 
 	if s.Properties != nil {
 		nodeSize += s.Properties.SizeOf()
@@ -234,12 +238,12 @@ func (s NodeSet) IDs() []ID {
 	return idList
 }
 
-// IDBitmap returns a new roaring64.Bitmap instance containing all Node ID values in this NodeSet.
-func (s NodeSet) IDBitmap() *roaring.Bitmap {
-	bitmap := roaring.New()
+// IDBitmap returns a new bitmap instance containing all Node ID values in this NodeSet.
+func (s NodeSet) IDBitmap() cardinality.Duplex[uint64] {
+	bitmap := cardinality.NewBitmap64()
 
 	for id := range s {
-		bitmap.Add(id.Uint32())
+		bitmap.Add(id.Uint64())
 	}
 
 	return bitmap
@@ -395,7 +399,7 @@ func (s ThreadSafeNodeSet) IDs() []ID {
 }
 
 // IDBitmap returns a new roaring64.Bitmap instance containing all Node ID values in this NodeSet.
-func (s ThreadSafeNodeSet) IDBitmap() *roaring.Bitmap {
+func (s ThreadSafeNodeSet) IDBitmap() cardinality.Duplex[uint64] {
 	s.rwLock.RLock()
 	defer s.rwLock.RUnlock()
 
@@ -412,7 +416,27 @@ func Uint32SliceToIDs(raw []uint32) []ID {
 	return ids
 }
 
+func Uint64SliceToIDs(raw []uint64) []ID {
+	ids := make([]ID, len(raw))
+
+	for idx, rawID := range raw {
+		ids[idx] = ID(rawID)
+	}
+
+	return ids
+}
+
 func IDsToUint32Slice(ids []ID) []uint32 {
+	rawIDs := make([]uint32, len(ids))
+
+	for idx, id := range ids {
+		rawIDs[idx] = id.Uint32()
+	}
+
+	return rawIDs
+}
+
+func IDsToUint64Slice(ids []ID) []uint32 {
 	rawIDs := make([]uint32, len(ids))
 
 	for idx, id := range ids {

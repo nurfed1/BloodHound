@@ -21,9 +21,10 @@ import (
 	"github.com/specterops/bloodhound/cache"
 	_ "github.com/specterops/bloodhound/dawgs/drivers/neo4j"
 	"github.com/specterops/bloodhound/dawgs/graph"
+	"github.com/specterops/bloodhound/src/auth"
 	"github.com/specterops/bloodhound/src/config"
-	"github.com/specterops/bloodhound/src/daemons/datapipe"
 	"github.com/specterops/bloodhound/src/database"
+	"github.com/specterops/bloodhound/src/database/types/null"
 	"github.com/specterops/bloodhound/src/model"
 	"github.com/specterops/bloodhound/src/queries"
 	"github.com/specterops/bloodhound/src/serde"
@@ -59,13 +60,14 @@ type ListSAMLProvidersResponse struct {
 }
 
 type UpdateUserRequest struct {
-	FirstName      string  `json:"first_name"`
-	LastName       string  `json:"last_name"`
-	EmailAddress   string  `json:"email_address"`
-	Principal      string  `json:"principal"`
-	Roles          []int32 `json:"roles"`
-	SAMLProviderID string  `json:"saml_provider_id"`
-	IsDisabled     bool    `json:"is_disabled"`
+	FirstName      string     `json:"first_name"`
+	LastName       string     `json:"last_name"`
+	EmailAddress   string     `json:"email_address"`
+	Principal      string     `json:"principal"`
+	Roles          []int32    `json:"roles"`
+	SAMLProviderID string     `json:"saml_provider_id"`
+	SSOProviderID  null.Int32 `json:"sso_provider_id"`
+	IsDisabled     bool       `json:"is_disabled"`
 }
 
 type CreateUserRequest struct {
@@ -78,6 +80,7 @@ type DeleteSAMLProviderResponse struct {
 }
 
 type SetUserSecretRequest struct {
+	CurrentSecret      string `json:"current_secret"`
 	Secret             string `json:"secret" validate:"password,length=12,lower=1,upper=1,special=1,numeric=1"`
 	NeedsPasswordReset bool   `json:"needs_password_reset"`
 }
@@ -140,7 +143,7 @@ type Resources struct {
 	QueryParameterFilterParser model.QueryParameterFilterParser
 	Cache                      cache.Cache
 	CollectorManifests         config.CollectorManifests
-	TaskNotifier               datapipe.Tasker
+	Authorizer                 auth.Authorizer
 }
 
 func NewResources(
@@ -150,7 +153,7 @@ func NewResources(
 	apiCache cache.Cache,
 	graphQuery queries.Graph,
 	collectorManifests config.CollectorManifests,
-	taskNotifier datapipe.Tasker,
+	authorizer auth.Authorizer,
 ) Resources {
 	return Resources{
 		Decoder:                    schema.NewDecoder(),
@@ -161,6 +164,6 @@ func NewResources(
 		QueryParameterFilterParser: model.NewQueryParameterFilterParser(),
 		Cache:                      apiCache,
 		CollectorManifests:         collectorManifests,
-		TaskNotifier:               taskNotifier,
+		Authorizer:                 authorizer,
 	}
 }

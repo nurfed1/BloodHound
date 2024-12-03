@@ -21,17 +21,15 @@ import (
 	"fmt"
 	"time"
 
-	schema "github.com/specterops/bloodhound/graphschema"
-	"github.com/specterops/bloodhound/log"
-	"github.com/specterops/bloodhound/src/bootstrap"
-	"github.com/specterops/bloodhound/src/queries"
-
 	"github.com/specterops/bloodhound/cache"
 	"github.com/specterops/bloodhound/dawgs/graph"
+	schema "github.com/specterops/bloodhound/graphschema"
+	"github.com/specterops/bloodhound/log"
 	"github.com/specterops/bloodhound/src/api"
 	"github.com/specterops/bloodhound/src/api/registration"
 	"github.com/specterops/bloodhound/src/api/router"
 	"github.com/specterops/bloodhound/src/auth"
+	"github.com/specterops/bloodhound/src/bootstrap"
 	"github.com/specterops/bloodhound/src/config"
 	"github.com/specterops/bloodhound/src/daemons"
 	"github.com/specterops/bloodhound/src/daemons/api/bhapi"
@@ -40,6 +38,7 @@ import (
 	"github.com/specterops/bloodhound/src/daemons/gc"
 	"github.com/specterops/bloodhound/src/database"
 	"github.com/specterops/bloodhound/src/model/appcfg"
+	"github.com/specterops/bloodhound/src/queries"
 )
 
 // ConnectPostgres initializes a connection to PG, and returns errors if any
@@ -67,6 +66,13 @@ func ConnectDatabases(ctx context.Context, cfg config.Configuration) (bootstrap.
 	}
 }
 
+// PreMigrationDaemons Word of caution: These daemons will be launched prior to any migration starting
+func PreMigrationDaemons(ctx context.Context, cfg config.Configuration, connections bootstrap.DatabaseConnections[*database.BloodhoundDB, *graph.DatabaseSwitch]) ([]daemons.Daemon, error) {
+	return []daemons.Daemon{
+		toolapi.NewDaemon(ctx, connections, cfg, schema.DefaultGraphSchema()),
+	}, nil
+}
+
 func Entrypoint(ctx context.Context, cfg config.Configuration, connections bootstrap.DatabaseConnections[*database.BloodhoundDB, *graph.DatabaseSwitch]) ([]daemons.Daemon, error) {
 	if !cfg.DisableMigrations {
 		if err := bootstrap.MigrateDB(ctx, cfg, connections.RDMS); err != nil {
@@ -89,14 +95,15 @@ func Entrypoint(ctx context.Context, cfg config.Configuration, connections boots
 	} else {
 		var (
 			graphQuery     = queries.NewGraphQuery(connections.Graph, graphQueryCache, cfg)
+			authorizer     = auth.NewAuthorizer(connections.RDMS)
 			datapipeDaemon = datapipe.NewDaemon(ctx, cfg, connections, graphQueryCache, time.Duration(cfg.DatapipeInterval)*time.Second)
-			routerInst     = router.NewRouter(cfg, auth.NewAuthorizer(connections.RDMS), bootstrap.ContentSecurityPolicy)
+			routerInst     = router.NewRouter(cfg, authorizer, bootstrap.ContentSecurityPolicy)
 			ctxInitializer = database.NewContextInitializer(connections.RDMS)
 			authenticator  = api.NewAuthenticator(cfg, connections.RDMS, ctxInitializer)
 		)
 
 		registration.RegisterFossGlobalMiddleware(&routerInst, cfg, connections.RDMS, auth.NewIdentityResolver(), authenticator)
-		registration.RegisterFossRoutes(&routerInst, cfg, connections.RDMS, connections.Graph, graphQuery, apiCache, collectorManifests, authenticator, datapipeDaemon)
+		registration.RegisterFossRoutes(&routerInst, cfg, connections.RDMS, connections.Graph, graphQuery, apiCache, collectorManifests, authenticator, authorizer)
 
 		// Set neo4j batch and flush sizes
 		neo4jParameters := appcfg.GetNeo4jParameters(ctx, connections.RDMS)
@@ -104,11 +111,12 @@ func Entrypoint(ctx context.Context, cfg config.Configuration, connections boots
 		connections.Graph.SetWriteFlushSize(neo4jParameters.WriteFlushSize)
 
 		// Trigger analysis on first start
-		datapipeDaemon.RequestAnalysis()
+		if err := connections.RDMS.RequestAnalysis(ctx, "init"); err != nil {
+			log.Warnf("failed to request init analysis: %v", err)
+		}
 
 		return []daemons.Daemon{
 			bhapi.NewDaemon(cfg, routerInst.Handler()),
-			toolapi.NewDaemon(ctx, connections, cfg, schema.DefaultGraphSchema()),
 			gc.NewDataPruningDaemon(connections.RDMS),
 			datapipeDaemon,
 		}, nil

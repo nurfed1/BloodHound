@@ -23,14 +23,19 @@ import {
     AzureDataQualityResponse,
     BasicResponse,
     CreateAuthTokenResponse,
+    DatapipeStatusResponse,
     EndFileIngestResponse,
+    GetConfigurationResponse,
     ListAuthTokensResponse,
     ListFileIngestJobsResponse,
     ListFileTypesForIngestResponse,
     PaginatedResponse,
     PostureResponse,
+    PostureFindingTrendsResponse,
+    PostureHistoryResponse,
     SavedQuery,
     StartFileIngestResponse,
+    UpdateConfigurationResponse,
     UploadFileToIngestResponse,
 } from './responses';
 import * as types from './types';
@@ -49,7 +54,8 @@ class BHEAPIClient {
     version = (options?: types.RequestOptions) => this.baseClient.get('/api/version', options);
 
     /* datapipe status */
-    getDatapipeStatus = (options?: types.RequestOptions) => this.baseClient.get('/api/v2/datapipe/status', options);
+    getDatapipeStatus = (options?: types.RequestOptions) =>
+        this.baseClient.get<DatapipeStatusResponse>('/api/v2/datapipe/status', options);
 
     /* search */
     searchHandler = (keyword: string, type?: string, options?: types.RequestOptions) => {
@@ -70,7 +76,7 @@ class BHEAPIClient {
         );
     };
 
-    cypherSearch = (query: string, includeProperties?: boolean, options?: types.RequestOptions) => {
+    cypherSearch = (query: string, options?: types.RequestOptions, includeProperties?: boolean) => {
         return this.baseClient.post('/api/v2/graphs/cypher', { query, include_properties: includeProperties }, options);
     };
 
@@ -157,6 +163,7 @@ class BHEAPIClient {
         this.baseClient.get<AssetGroupResponse>('/api/v2/asset-groups', options);
 
     /* analysis */
+
     getComboTreeGraph = (domainId: string, nodeId: string | null = null, options?: types.RequestOptions) =>
         this.baseClient.get(
             `/api/v2/meta-trees/${domainId}`,
@@ -266,6 +273,47 @@ class BHEAPIClient {
             Object.assign(
                 {
                     params: params,
+                },
+                options
+            )
+        );
+    };
+
+    getPostureFindingTrends = (
+        environmentId: string,
+        start?: Date,
+        end?: Date,
+        sort_by?: string,
+        options?: types.RequestOptions
+    ) => {
+        return this.baseClient.get<PostureFindingTrendsResponse>(
+            `/api/v2/finding-trends/${environmentId}`,
+            Object.assign(
+                {
+                    start: start?.toISOString(),
+                    end: end?.toISOString(),
+                    sort_by,
+                },
+                options
+            )
+        );
+    };
+
+    getPostureHistory = (
+        environmentId: string,
+        dataType: string,
+        start?: Date,
+        end?: Date,
+        partition_by?: string,
+        options?: types.RequestOptions
+    ) => {
+        return this.baseClient.get<PostureHistoryResponse>(
+            `/api/v2/posture-history/${environmentId}/${dataType}`,
+            Object.assign(
+                {
+                    start: start?.toISOString(),
+                    end: end?.toISOString(),
+                    partition_by,
                 },
                 options
             )
@@ -484,12 +532,14 @@ class BHEAPIClient {
         skip: number,
         limit: number,
         filterAccepted?: boolean,
+        sortBy?: string,
         options?: types.RequestOptions
     ) => {
         const params: types.RiskDetailsRequest = {
             finding: finding,
             skip: skip,
             limit: limit,
+            sort_by: sortBy,
         };
 
         if (typeof filterAccepted === 'boolean') params.Accepted = `eq:${filterAccepted}`;
@@ -645,8 +695,14 @@ class BHEAPIClient {
             options
         );
 
-    deleteSAMLProvider = (SAMLProviderId: string, options?: types.RequestOptions) =>
-        this.baseClient.delete(`/api/v2/saml/providers/${SAMLProviderId}`, options);
+    deleteSSOProvider = (ssoProviderId: types.SSOProvider['id'], options?: types.RequestOptions) =>
+        this.baseClient.delete(`/api/v2/sso-providers/${ssoProviderId}`, options);
+
+    createOIDCProvider = (oidcProvider: types.CreateOIDCProviderRequest) =>
+        this.baseClient.post(`/api/v2/sso-providers/oidc`, oidcProvider);
+
+    listSSOProviders = (options?: types.RequestOptions) =>
+        this.baseClient.get<types.ListSSOProvidersResponse>(`/api/v2/sso-providers`, options);
 
     permissionList = (options?: types.RequestOptions) => this.baseClient.get('/api/v2/permissions', options);
 
@@ -684,24 +740,13 @@ class BHEAPIClient {
     deleteUserToken = (tokenId: string, options?: types.RequestOptions) =>
         this.baseClient.delete(`/api/v2/tokens/${tokenId}`, options);
 
-    listUsers = (options?: types.RequestOptions) => this.baseClient.get('/api/v2/bloodhound-users', options);
+    listUsers = (options?: types.RequestOptions) =>
+        this.baseClient.get<types.ListUsersResponse>('/api/v2/bloodhound-users', options);
 
     getUser = (userId: string, options?: types.RequestOptions) =>
         this.baseClient.get(`/api/v2/bloodhound-users/${userId}`, options);
 
-    createUser = (
-        user: {
-            firstName: string;
-            lastName: string;
-            emailAddress: string;
-            principal: string;
-            roles: number[];
-            SAMLProviderId?: string;
-            password?: string;
-            needsPasswordReset?: boolean;
-        },
-        options?: types.RequestOptions
-    ) =>
+    createUser = (user: types.CreateUserRequest, options?: types.RequestOptions) =>
         this.baseClient.post(
             '/api/v2/bloodhound-users',
             {
@@ -710,7 +755,7 @@ class BHEAPIClient {
                 email_address: user.emailAddress,
                 principal: user.principal,
                 roles: user.roles,
-                saml_provider_id: user.SAMLProviderId,
+                sso_provider_id: user.SSOProviderId,
                 secret: user.password,
                 needs_password_reset: user.needsPasswordReset,
             },
@@ -726,7 +771,7 @@ class BHEAPIClient {
                 email_address: user.emailAddress,
                 principal: user.principal,
                 roles: user.roles,
-                saml_provider_id: user.SAMLProviderId,
+                sso_provider_id: user.SSOProviderId,
                 is_disabled: user.is_disabled,
             },
             options
@@ -738,8 +783,16 @@ class BHEAPIClient {
     expireUserAuthSecret = (userId: string, options?: types.RequestOptions) =>
         this.baseClient.delete(`/api/v2/bloodhound-users/${userId}/secret`, options);
 
-    putUserAuthSecret = (userId: string, userSecret: types.PutUserAuthSecretRequest, options?: types.RequestOptions) =>
-        this.baseClient.put(`/api/v2/bloodhound-users/${userId}/secret`, userSecret, options);
+    putUserAuthSecret = (userId: string, payload: types.PutUserAuthSecretRequest, options?: types.RequestOptions) =>
+        this.baseClient.put(
+            `/api/v2/bloodhound-users/${userId}/secret`,
+            {
+                current_secret: payload.currentSecret,
+                needs_password_reset: payload.needsPasswordReset,
+                secret: payload.secret,
+            },
+            options
+        );
 
     enrollMFA = (userId: string, data: { secret: string }, options?: types.RequestOptions) =>
         this.baseClient.post(`/api/v2/bloodhound-users/${userId}/mfa`, data, options);
@@ -763,6 +816,14 @@ class BHEAPIClient {
         this.baseClient.post(`/api/v2/bloodhound-users/${userId}/mfa-activation`, data, options);
 
     acceptEULA = (options?: types.RequestOptions) => this.baseClient.put('/api/v2/accept-eula', options);
+
+    acceptFedRAMPEULA = (options?: types.RequestOptions) => this.baseClient.put('/api/v2/fed-eula/accept', options);
+
+    getFedRAMPEULAStatus = (options?: types.RequestOptions) =>
+        this.baseClient.get<{ data: { accepted: boolean } }>('/api/v2/fed-eula/status', options);
+
+    getFedRAMPEULAText = (options?: types.RequestOptions) =>
+        this.baseClient.get<{ data: string }>('/api/v2/fed-eula/text', options);
 
     getFeatureFlags = (options?: types.RequestOptions) => this.baseClient.get('/api/v2/features', options);
 
@@ -2295,6 +2356,17 @@ class BHEAPIClient {
                 options
             )
         );
+
+    /* remote assets */
+    getRemoteAsset = (assetPath: string, options?: types.RequestOptions) =>
+        this.baseClient.get(`/api/v2/assets/${assetPath}`, options);
+
+    /* configuration */
+    getConfiguration = (options?: types.RequestOptions) =>
+        this.baseClient.get<GetConfigurationResponse>('/api/v2/config', options);
+
+    updateConfiguration = (payload: types.UpdateConfigurationRequest, options?: types.RequestOptions) =>
+        this.baseClient.put<UpdateConfigurationResponse>('/api/v2/config', payload, options);
 }
 
 export default BHEAPIClient;

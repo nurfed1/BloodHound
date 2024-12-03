@@ -17,19 +17,21 @@
 package frontend
 
 import (
-	"github.com/specterops/bloodhound/cypher/model"
+	"strings"
+
+	"github.com/specterops/bloodhound/cypher/models/cypher"
 	"github.com/specterops/bloodhound/cypher/parser"
 )
 
 type IDInCollectionVisitor struct {
 	BaseVisitor
 
-	IDInCollection *model.IDInCollection
+	IDInCollection *cypher.IDInCollection
 }
 
 func NewIDInCollectionVisitor() *IDInCollectionVisitor {
 	return &IDInCollectionVisitor{
-		IDInCollection: model.NewIDInCollection(),
+		IDInCollection: cypher.NewIDInCollection(),
 	}
 }
 
@@ -52,12 +54,12 @@ func (s *IDInCollectionVisitor) ExitOC_Expression(ctx *parser.OC_ExpressionConte
 type FilterExpressionVisitor struct {
 	BaseVisitor
 
-	FilterExpression *model.FilterExpression
+	FilterExpression *cypher.FilterExpression
 }
 
 func NewFilterExpressionVisitor() *FilterExpressionVisitor {
 	return &FilterExpressionVisitor{
-		FilterExpression: model.NewFilterExpression(),
+		FilterExpression: cypher.NewFilterExpression(),
 	}
 }
 
@@ -80,24 +82,24 @@ func (s *FilterExpressionVisitor) ExitOC_Where(ctx *parser.OC_WhereContext) {
 type QuantifierVisitor struct {
 	BaseVisitor
 
-	Quantifier *model.Quantifier
+	Quantifier *cypher.Quantifier
 }
 
 func NewQuantifierVisitor(ctx *parser.OC_QuantifierContext) *QuantifierVisitor {
-	quantifierType := model.QuantifierTypeInvalid
+	quantifierType := cypher.QuantifierTypeInvalid
 
 	if HasTokens(ctx, parser.CypherParserALL) {
-		quantifierType = model.QuantifierTypeAll
+		quantifierType = cypher.QuantifierTypeAll
 	} else if HasTokens(ctx, parser.CypherParserANY) {
-		quantifierType = model.QuantifierTypeAny
+		quantifierType = cypher.QuantifierTypeAny
 	} else if HasTokens(ctx, parser.CypherParserNONE) {
-		quantifierType = model.QuantifierTypeNone
+		quantifierType = cypher.QuantifierTypeNone
 	} else if HasTokens(ctx, parser.CypherParserSINGLE) {
-		quantifierType = model.QuantifierTypeSingle
+		quantifierType = cypher.QuantifierTypeSingle
 	}
 
 	return &QuantifierVisitor{
-		Quantifier: model.NewQuantifier(quantifierType),
+		Quantifier: cypher.NewQuantifier(quantifierType),
 	}
 }
 
@@ -129,11 +131,35 @@ func (s *QuantifierVisitor) ExitOC_FilterExpression(ctx *parser.OC_FilterExpress
 type AtomVisitor struct {
 	BaseVisitor
 
-	Atom model.Expression
+	Atom cypher.Expression
 }
 
 func NewAtomVisitor() Visitor {
 	return &AtomVisitor{}
+}
+
+func (s *AtomVisitor) EnterOC_Parameter(ctx *parser.OC_ParameterContext) {
+	s.ctx.Enter(&SymbolicNameOrReservedWordVisitor{})
+}
+
+// extractParameterSymbol attempts to extract the symbolic representation of the parameter from the given
+// OC_ParameterContext. This function expects a SymbolicNameOrReservedWordVisitor to be on the context stack.
+//
+// Reasoning for this is that oC_Parameter can either be oC_SymbolicName or a DecimalInteger (which is
+// either a Decimal or an Integer). In the latter case the symbolic representation is stored as a token
+// on the OC_ParameterContext struct.
+func extractParameterSymbol(ctx *Context, cypherCtx *parser.OC_ParameterContext) string {
+	if symbolicName := ctx.Exit().(*SymbolicNameOrReservedWordVisitor).Name; len(symbolicName) > 0 {
+		return symbolicName
+	}
+
+	return strings.TrimPrefix(cypherCtx.GetText(), "$")
+}
+
+func (s *AtomVisitor) ExitOC_Parameter(ctx *parser.OC_ParameterContext) {
+	s.Atom = &cypher.Parameter{
+		Symbol: extractParameterSymbol(s.ctx, ctx),
+	}
 }
 
 func (s *AtomVisitor) EnterOC_ParenthesizedExpression(ctx *parser.OC_ParenthesizedExpressionContext) {
@@ -177,11 +203,11 @@ func (s *AtomVisitor) EnterOC_Literal(ctx *parser.OC_LiteralContext) {
 
 func (s *AtomVisitor) ExitOC_Literal(ctx *parser.OC_LiteralContext) {
 	if ctx.NULL() != nil {
-		s.Atom = &model.Literal{
+		s.Atom = &cypher.Literal{
 			Null: true,
 		}
 	} else if ctx.StringLiteral() != nil {
-		s.Atom = &model.Literal{
+		s.Atom = &cypher.Literal{
 			Value: ctx.GetText(),
 		}
 	} else {
@@ -196,7 +222,7 @@ func (s *AtomVisitor) EnterOC_Variable(ctx *parser.OC_VariableContext) {
 func (s *AtomVisitor) ExitOC_Variable(ctx *parser.OC_VariableContext) {
 	result := s.ctx.Exit().(*SymbolicNameOrReservedWordVisitor).Name
 
-	s.Atom = &model.Variable{
+	s.Atom = &cypher.Variable{
 		Symbol: result,
 	}
 }

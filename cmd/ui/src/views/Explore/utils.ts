@@ -14,149 +14,94 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-import {
-    ActiveDirectoryKindProperties,
-    ActiveDirectoryKindPropertiesToDisplay,
-    AzureKindProperties,
-    AzureKindPropertiesToDisplay,
-    CommonKindProperties,
-    CommonKindPropertiesToDisplay,
-    EntityField,
-    EntityPropertyKind,
-} from 'bh-shared-ui';
-import { MultiDirectedGraph } from 'graphology';
-import { GraphEdges, GraphNodes } from 'js-client-library';
-import isEmpty from 'lodash/isEmpty';
-import startCase from 'lodash/startCase';
-import { ZERO_VALUE_API_DATE } from 'src/constants';
+import { Theme } from '@mui/material';
 import { GlyphKind } from 'bh-shared-ui';
+import { MultiDirectedGraph } from 'graphology';
+import { GraphData, GraphEdges, GraphNodes } from 'js-client-library';
 import { GlyphLocation } from 'src/rendering/programs/node.glyphs';
-import { EdgeDirection, EdgeParams, NodeParams } from 'src/utils';
-import { NODE_ICON, GLYPHS, UNKNOWN_ICON } from './svgIcons';
+import { EdgeDirection, EdgeParams, NodeParams, ThemedOptions } from 'src/utils';
+import { GLYPHS, NODE_ICON, UNKNOWN_ICON } from './svgIcons';
+import { random } from 'graphology-layout';
+import forceAtlas2 from 'graphology-layout-forceatlas2';
 
-export const formatObjectInfoFields = (props: any): EntityField[] => {
-    let mappedFields: EntityField[] = [];
-    const propKeys = Object.keys(props || {});
+export const initGraph = (graph: MultiDirectedGraph, items: GraphData, theme: Theme, darkMode: boolean) => {
+    const { nodes, edges } = items;
 
-    for (let i = 0; i < propKeys.length; i++) {
-        const value = props[propKeys[i]];
-        // Don't display empty fields or fields with zero date values
-        if (
-            value === undefined ||
-            value === '' ||
-            value === ZERO_VALUE_API_DATE ||
-            (typeof value === 'object' && isEmpty(value))
-        )
-            continue;
+    const themedOptions = {
+        labels: {
+            labelColor: theme.palette.color.primary,
+            backgroundColor: theme.palette.neutral.secondary,
+            highlightedBackground: theme.palette.color.links,
+            highlightedText: darkMode ? theme.palette.common.black : theme.palette.common.white,
+        },
+        nodeBorderColor: theme.palette.color.primary,
+        glyph: {
+            colors: {
+                backgroundColor: theme.palette.color.primary,
+                color: theme.palette.neutral.primary, //border
+            },
+            tierZeroGlyph: darkMode ? GLYPHS[GlyphKind.TIER_ZERO_DARK] : GLYPHS[GlyphKind.TIER_ZERO],
+            ownedObjectGlyph: darkMode ? GLYPHS[GlyphKind.OWNED_OBJECT_DARK] : GLYPHS[GlyphKind.OWNED_OBJECT],
+        },
+    };
 
-        const { kind, isKnownProperty } = validateProperty(propKeys[i]);
+    initGraphNodes(graph, nodes, themedOptions);
+    initGraphEdges(graph, edges, themedOptions);
 
-        if (isKnownProperty) {
-            mappedFields.push({
-                kind: kind,
-                label: getFieldLabel(kind!, propKeys[i]),
-                value: value,
-                keyprop: propKeys[i],
-            });
-        } else {
-            mappedFields.push({
-                kind: kind,
-                label: `${startCase(propKeys[i])}:`,
-                value: value,
-                keyprop: propKeys[i],
-            });
-        }
-    }
+    random.assign(graph, { scale: 1000 });
 
-    mappedFields = mappedFields.sort((a, b) => {
-        return a.label!.localeCompare(b.label!);
+    forceAtlas2.assign(graph, {
+        iterations: 128,
+        settings: {
+            scalingRatio: 1000,
+            barnesHutOptimize: true,
+        },
     });
-
-    return mappedFields;
 };
 
-const isActiveDirectoryProperty = (enumValue: ActiveDirectoryKindProperties): boolean => {
-    return Object.values(ActiveDirectoryKindProperties).includes(enumValue);
-};
-
-const isAzureProperty = (enumValue: AzureKindProperties): boolean => {
-    return Object.values(AzureKindProperties).includes(enumValue);
-};
-
-const isCommonProperty = (enumValue: CommonKindProperties): boolean => {
-    return Object.values(CommonKindProperties).includes(enumValue);
-};
-
-export type ValidatedProperty = {
-    isKnownProperty: boolean;
-    kind: EntityPropertyKind;
-};
-
-export const validateProperty = (enumValue: string): ValidatedProperty => {
-    if (isActiveDirectoryProperty(enumValue as ActiveDirectoryKindProperties))
-        return { isKnownProperty: true, kind: 'ad' };
-    if (isAzureProperty(enumValue as AzureKindProperties)) return { isKnownProperty: true, kind: 'az' };
-    if (isCommonProperty(enumValue as CommonKindProperties)) return { isKnownProperty: true, kind: 'cm' };
-    return { isKnownProperty: false, kind: null };
-};
-
-const getFieldLabel = (kind: string, key: string): string => {
-    let label: string;
-
-    switch (kind) {
-        case 'ad':
-            label = ActiveDirectoryKindPropertiesToDisplay(key as ActiveDirectoryKindProperties)!;
-            break;
-        case 'az':
-            label = AzureKindPropertiesToDisplay(key as AzureKindProperties)!;
-            break;
-        case 'cm':
-            label = CommonKindPropertiesToDisplay(key as CommonKindProperties)!;
-            break;
-        default:
-            label = key;
-    }
-
-    return `${label}:`;
-};
-
-export const initGraphNodes = (graph: MultiDirectedGraph, nodes: GraphNodes, nodeSize: number) => {
+const initGraphNodes = (graph: MultiDirectedGraph, nodes: GraphNodes, themedOptions: ThemedOptions) => {
     Object.keys(nodes).forEach((key: string) => {
         const node = nodes[key];
         // Set default node parameters
         const nodeParams: Partial<NodeParams> = {
-            color: '#FFFFFF',
             type: 'combined',
             label: node.label,
             forceLabel: true,
+            ...themedOptions.labels,
         };
 
         const icon = NODE_ICON[node.kind] || UNKNOWN_ICON;
         nodeParams.color = icon.color;
         nodeParams.image = icon.url || '';
+        nodeParams.glyphs = [];
 
         // Tier zero nodes should be marked with a gem glyph
         if (node.isTierZero) {
-            const glyph = GLYPHS[GlyphKind.TIER_ZERO];
             nodeParams.type = 'glyphs';
-            nodeParams.glyphs = [
-                {
-                    location: GlyphLocation.TOP_RIGHT,
-                    image: glyph.url || '',
-                    backgroundColor: glyph.color,
-                },
-            ];
+            nodeParams.glyphs.push({
+                location: GlyphLocation.TOP_RIGHT,
+                image: themedOptions.glyph.tierZeroGlyph.url || '',
+                ...themedOptions.glyph.colors,
+            });
+        }
+        if (node.isOwnedObject) {
+            nodeParams.type = 'glyphs';
+            nodeParams.glyphs.push({
+                location: GlyphLocation.BOTTOM_RIGHT,
+                image: themedOptions.glyph.ownedObjectGlyph.url || '',
+                ...themedOptions.glyph.colors,
+            });
         }
 
         graph.addNode(key, {
-            size: nodeSize,
-            borderColor: '#000000',
+            size: 25,
+            borderColor: themedOptions.nodeBorderColor,
             ...nodeParams,
         });
     });
 };
 
-export const initGraphEdges = (graph: MultiDirectedGraph, edges: GraphEdges) => {
+const initGraphEdges = (graph: MultiDirectedGraph, edges: GraphEdges, themedOptions: ThemedOptions) => {
     // Group edges with the same start and end nodes into arrays. Should be grouped regardless of direction
     const groupedEdges = edges.reduce<Record<string, GraphEdges>>((groups, edge) => {
         const identifiers = [edge.source, edge.target].sort();
@@ -182,11 +127,11 @@ export const initGraphEdges = (graph: MultiDirectedGraph, edges: GraphEdges) => 
                 size: 3,
                 type: 'arrow',
                 label: edge.label,
-                color: '#000000C0',
                 groupPosition: 0,
                 groupSize: 1,
                 exploreGraphId: edge.exploreGraphId || key,
                 forceLabel: true,
+                ...themedOptions.labels,
             };
 
             // Groups with odd-numbered totals should have a straight edge first, then curve the rest

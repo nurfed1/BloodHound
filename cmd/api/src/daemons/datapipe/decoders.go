@@ -18,10 +18,11 @@ package datapipe
 
 import (
 	"errors"
+	"io"
+
 	"github.com/specterops/bloodhound/dawgs/graph"
 	"github.com/specterops/bloodhound/ein"
 	"github.com/specterops/bloodhound/log"
-	"io"
 )
 
 /*
@@ -43,13 +44,14 @@ func decodeBasicData[T any](batch graph.Batch, reader io.ReadSeeker, conversionF
 	)
 
 	for decoder.More() {
-		//This variable needs to be initialized here, otherwise the marshaller will cache the map in the struct
+		// This variable needs to be initialized here, otherwise the marshaller will cache the map in the struct
 		var decodeTarget T
 		if err := decoder.Decode(&decodeTarget); err != nil {
 			log.Errorf("Error decoding %T object: %v", decodeTarget, err)
 			if errors.Is(err, io.EOF) {
 				break
 			}
+			return err
 		} else {
 			count++
 			conversionFunc(decodeTarget, &convertedData)

@@ -21,8 +21,6 @@ package database_test
 
 import (
 	"context"
-	"github.com/specterops/bloodhound/src/test/integration"
-	"github.com/specterops/bloodhound/src/utils/test"
 	"testing"
 	"time"
 
@@ -30,6 +28,8 @@ import (
 	"github.com/specterops/bloodhound/src/database"
 	"github.com/specterops/bloodhound/src/database/types/null"
 	"github.com/specterops/bloodhound/src/model"
+	"github.com/specterops/bloodhound/src/test/integration"
+	"github.com/specterops/bloodhound/src/utils/test"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -239,8 +239,6 @@ func TestDatabase_CreateGetDeleteAuthToken(t *testing.T) {
 		t.Fatalf("Expected auth token to have name %s but saw %v", expectedName, newToken.Name.String)
 	} else if err = dbInst.DeleteAuthToken(ctx, newToken); err != nil {
 		t.Fatalf("Failed to delete auth token: %v", err)
-	} else if err = test.VerifyAuditLogs(dbInst, model.AuditLogActionDeleteAuthToken, "id", newToken.ID.String()); err != nil {
-		t.Fatalf("Failed to validate DeleteAuthToken audit logs:\n%v", err)
 	}
 
 	if updatedUser, err := dbInst.GetUser(ctx, user.ID); err != nil {
@@ -301,19 +299,22 @@ func TestDatabase_CreateGetDeleteAuthSecret(t *testing.T) {
 
 func TestDatabase_CreateUpdateDeleteSAMLProvider(t *testing.T) {
 	var (
-		ctx          = context.Background()
-		dbInst, user = initAndCreateUser(t)
-
-		samlProvider = model.SAMLProvider{
-			Name:            "provider",
-			DisplayName:     "provider name",
-			IssuerURI:       "https://idp.example.com/idp.xml",
-			SingleSignOnURI: "https://idp.example.com/sso",
-		}
-
-		newSAMLProvider model.SAMLProvider
-		err             error
+		ctx                 = context.Background()
+		dbInst, user        = initAndCreateUser(t)
+		samlProvider        model.SAMLProvider
+		newSAMLProvider     model.SAMLProvider
+		updatedUser         model.User
+		updatedSAMLProvider model.SAMLProvider
+		err                 error
 	)
+
+	// Initialize the SAMLProvider without setting SSOProviderID
+	samlProvider = model.SAMLProvider{
+		Name:            "provider",
+		DisplayName:     "provider name",
+		IssuerURI:       "https://idp.example.com/idp.xml",
+		SingleSignOnURI: "https://idp.example.com/sso",
+	}
 
 	if newSAMLProvider, err = dbInst.CreateSAMLIdentityProvider(ctx, samlProvider); err != nil {
 		t.Fatalf("Failed to create SAML provider: %v", err)
@@ -322,9 +323,9 @@ func TestDatabase_CreateUpdateDeleteSAMLProvider(t *testing.T) {
 	} else {
 		user.SAMLProviderID = null.Int32From(newSAMLProvider.ID)
 
-		if err := dbInst.UpdateUser(ctx, user); err != nil {
+		if err = dbInst.UpdateUser(ctx, user); err != nil {
 			t.Fatalf("Failed to update user: %v", err)
-		} else if updatedUser, err := dbInst.GetUser(ctx, user.ID); err != nil {
+		} else if updatedUser, err = dbInst.GetUser(ctx, user.ID); err != nil {
 			t.Fatalf("Failed to fetch updated user: %v", err)
 		} else if updatedUser.SAMLProvider == nil {
 			t.Fatalf("Updated user does not have a SAMLProvider set when it should")
@@ -332,31 +333,33 @@ func TestDatabase_CreateUpdateDeleteSAMLProvider(t *testing.T) {
 			t.Fatalf("Updated user has SAMLProvider ID %d when %d was expected", updatedUser.SAMLProvider.ID, newSAMLProvider.ID)
 		} else if updatedUser.SAMLProvider.IssuerURI != newSAMLProvider.IssuerURI {
 			t.Fatalf("Updated user has SAMLProvider URL %s when %s was expected", updatedUser.SAMLProvider.IssuerURI, newSAMLProvider.IssuerURI)
+		} else {
+			updatedSAMLProvider = model.SAMLProvider{
+				Serial: model.Serial{
+					ID: newSAMLProvider.ID,
+				},
+				Name:            "updated provider",
+				DisplayName:     newSAMLProvider.DisplayName,
+				IssuerURI:       newSAMLProvider.IssuerURI,
+				SingleSignOnURI: newSAMLProvider.SingleSignOnURI,
+				SSOProviderID:   newSAMLProvider.SSOProviderID,
+			}
+
+			if err = dbInst.UpdateSAMLIdentityProvider(ctx, updatedSAMLProvider); err != nil {
+				t.Fatalf("Failed to update SAML provider: %v", err)
+			} else if err = test.VerifyAuditLogs(dbInst, model.AuditLogActionUpdateSAMLIdentityProvider, "saml_name", "updated provider"); err != nil {
+				t.Fatalf("Failed to validate UpdateSAMLIdentityProvider audit logs:\n%v", err)
+			} else {
+				user.SAMLProviderID = null.Int32{}
+				if err = dbInst.UpdateUser(ctx, user); err != nil {
+					t.Fatalf("Failed to update user: %v", err)
+				} else if err = dbInst.DeleteSSOProvider(ctx, int(newSAMLProvider.SSOProviderID.Int32)); err != nil {
+					t.Fatalf("Failed to delete SAML provider: %v", err)
+				} else if err = test.VerifyAuditLogs(dbInst, model.AuditLogActionDeleteSSOIdentityProvider, "name", "provider"); err != nil {
+					t.Fatalf("Failed to validate DeleteSAMLIdentityProvider audit logs:\n%v", err)
+				}
+			}
 		}
-	}
-
-	updatedSAMLProvider := model.SAMLProvider{
-		Serial: model.Serial{
-			ID: newSAMLProvider.ID,
-		},
-		Name:            "updated provider",
-		DisplayName:     newSAMLProvider.DisplayName,
-		IssuerURI:       newSAMLProvider.IssuerURI,
-		SingleSignOnURI: newSAMLProvider.SingleSignOnURI,
-	}
-	if err := dbInst.UpdateSAMLIdentityProvider(ctx, updatedSAMLProvider); err != nil {
-		t.Fatalf("Failed to update SAML provider: %v", err)
-	} else if err = test.VerifyAuditLogs(dbInst, model.AuditLogActionUpdateSAMLIdentityProvider, "saml_name", "updated provider"); err != nil {
-		t.Fatalf("Failed to validate UpdateSAMLIdentityProvider audit logs:\n%v", err)
-	}
-
-	user.SAMLProviderID = null.Int32{}
-	if err := dbInst.UpdateUser(ctx, user); err != nil {
-		t.Fatalf("Failed to update user: %v", err)
-	} else if err := dbInst.DeleteSAMLProvider(ctx, newSAMLProvider); err != nil {
-		t.Fatalf("Failed to delete SAML provider: %v", err)
-	} else if err = test.VerifyAuditLogs(dbInst, model.AuditLogActionDeleteSAMLIdentityProvider, "saml_name", "provider"); err != nil {
-		t.Fatalf("Failed to validate DeleteSAMLIdentityProvider audit logs:\n%v", err)
 	}
 }
 
@@ -389,4 +392,26 @@ func TestDatabase_CreateUserSession(t *testing.T) {
 	} else {
 		assert.Equal(t, user, newUserSession.User)
 	}
+}
+
+func TestDatabase_SetUserSessionFlag(t *testing.T) {
+	var (
+		testCtx      = context.Background()
+		dbInst, user = initAndCreateUser(t)
+		userSession  = model.UserSession{
+			User:      user,
+			UserID:    user.ID,
+			ExpiresAt: time.Now().UTC().Add(time.Hour),
+		}
+	)
+
+	newUserSession, err := dbInst.CreateUserSession(testCtx, userSession)
+	assert.Nil(t, err)
+
+	err = dbInst.SetUserSessionFlag(testCtx, &newUserSession, model.SessionFlagFedEULAAccepted, true)
+	assert.Nil(t, err)
+
+	dbSess, err := dbInst.GetUserSession(testCtx, newUserSession.ID)
+	assert.Nil(t, err)
+	assert.True(t, dbSess.Flags[string(model.SessionFlagFedEULAAccepted)])
 }

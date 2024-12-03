@@ -74,6 +74,24 @@ func FetchAllEnforcedGPOs(ctx context.Context, db graph.Database, targets graph.
 	})
 }
 
+func FetchOUContainers(ctx context.Context, db graph.Database, targets graph.NodeSet) (graph.NodeSet, error) {
+	defer log.Measure(log.LevelInfo, "FetchOUContainers")()
+
+	oUs := graph.NewNodeSet()
+
+	return oUs, db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+		for _, attackPathRoot := range targets {
+			if ou, err := FetchOUContainersOfNode(tx, attackPathRoot); err != nil {
+				return err
+			} else if ou != nil {
+				oUs.AddSet(ou)
+			}
+		}
+
+		return nil
+	})
+}
+
 func FetchAllDomains(ctx context.Context, db graph.Database) ([]*graph.Node, error) {
 	var (
 		nodes []*graph.Node
@@ -91,7 +109,7 @@ func FetchAllDomains(ctx context.Context, db graph.Database) ([]*graph.Node, err
 	})
 }
 
-func FetchActiveDirectoryTierZeroRoots(ctx context.Context, db graph.Database, domain *graph.Node) (graph.NodeSet, error) {
+func FetchActiveDirectoryTierZeroRoots(ctx context.Context, db graph.Database, domain *graph.Node, autoTagT0ParentObjectsFlag bool) (graph.NodeSet, error) {
 	defer log.LogAndMeasure(log.LevelInfo, "FetchActiveDirectoryTierZeroRoots")()
 
 	if domainSID, err := domain.Properties.Get(common.ObjectID.String()).String(); err != nil {
@@ -128,6 +146,32 @@ func FetchActiveDirectoryTierZeroRoots(ctx context.Context, db graph.Database, d
 			return nil, err
 		} else {
 			attackPathRoots.AddSet(enforcedGPOs)
+		}
+
+		if autoTagT0ParentObjectsFlag {
+			// Add the OUs to the attack path roots
+			if ous, err := FetchOUContainers(ctx, db, attackPathRoots); err != nil {
+				return nil, err
+			} else {
+				attackPathRoots.AddSet(ous)
+			}
+
+			// Add the containers to the attack path roots
+			db.ReadTransaction(ctx, func(tx graph.Transaction) error {
+				for _, attackPathRoot := range attackPathRoots {
+
+					// Do not add container if ACL inheritance is disabled
+					isACLProtected, err := attackPathRoot.Properties.Get(ad.IsACLProtected.String()).Bool()
+					if err != nil || !isACLProtected {
+						if containers, err := FetchContainersOfNode(tx, attackPathRoot); err != nil {
+							return err
+						} else if containers != nil {
+							attackPathRoots.AddSet(containers)
+						}
+					}
+				}
+				return nil
+			})
 		}
 
 		// Find all next-tier assets
@@ -443,6 +487,44 @@ func FetchEnforcedGPOs(tx graph.Transaction, target *graph.Node, skip, limit int
 	} else {
 		return enforcedGPOs, nil
 	}
+}
+
+func FetchOUContainersOfNode(tx graph.Transaction, target *graph.Node) (graph.NodeSet, error) {
+	oUContainers := graph.NewNodeSet()
+	if paths, err := ops.TraversePaths(tx, ops.TraversalPlan{
+		Root:      target,
+		Direction: graph.DirectionInbound,
+		BranchQuery: func() graph.Criteria {
+			return query.And(
+				query.Kind(query.Start(), ad.OU),
+				query.Kind(query.Relationship(), ad.Contains),
+			)
+		},
+	}); err != nil {
+		return nil, err
+	} else {
+		oUContainers.AddSet(paths.AllNodes())
+	}
+	return oUContainers, nil
+}
+
+func FetchContainersOfNode(tx graph.Transaction, target *graph.Node) (graph.NodeSet, error) {
+	containers := graph.NewNodeSet()
+	if paths, err := ops.TraversePaths(tx, ops.TraversalPlan{
+		Root:      target,
+		Direction: graph.DirectionInbound,
+		BranchQuery: func() graph.Criteria {
+			return query.And(
+				query.Kind(query.Start(), ad.Container),
+				query.Kind(query.Relationship(), ad.Contains),
+			)
+		},
+	}); err != nil {
+		return nil, err
+	} else {
+		containers.AddSet(paths.AllNodes())
+	}
+	return containers, nil
 }
 
 func CreateOUContainedListDelegate(kind graph.Kind) analysis.ListDelegate {
@@ -1335,7 +1417,7 @@ func FetchLocalGroupCompleteness(tx graph.Transaction, domainSIDs ...string) (fl
 		var (
 			activeComputerCount           = float64(computers.Len())
 			activeComputerCountWithAdmins = float64(0)
-			computerBmp                   = cardinality.NewBitmap32()
+			computerBmp                   = cardinality.NewBitmap64()
 		)
 
 		if err := tx.Relationships().Filterf(func() graph.Criteria {
@@ -1345,7 +1427,7 @@ func FetchLocalGroupCompleteness(tx graph.Transaction, domainSIDs ...string) (fl
 			)
 		}).Fetch(func(cursor graph.Cursor[*graph.Relationship]) error {
 			for rel := range cursor.Chan() {
-				computerBmp.Add(rel.EndID.Uint32())
+				computerBmp.Add(rel.EndID.Uint64())
 			}
 
 			return nil
@@ -1471,32 +1553,39 @@ func FetchCertTemplatesPublishedToCA(tx graph.Transaction, ca *graph.Node) (grap
 	}))
 }
 
-func FetchCanAbuseWeakCertBindingRels(tx graph.Transaction, node *graph.Node) ([]*graph.Relationship, error) {
-	if rels, err := ops.FetchRelationships(tx.Relationships().Filterf(func() graph.Criteria {
-		return query.And(
-			query.Equals(query.StartID(), node.ID),
-			query.Kind(query.Relationship(), ad.CanAbuseWeakCertBinding),
-			query.Kind(query.End(), ad.Entity),
-		)
-	})); err != nil {
+func FetchNodesWithTrustedByParentChildRelationship(tx graph.Transaction, root *graph.Node) (graph.NodeSet, error) {
+	if pathSet, err := ops.TraversePaths(tx, ops.TraversalPlan{
+		Root:      root,
+		Direction: graph.DirectionInbound,
+		BranchQuery: func() graph.Criteria {
+			return query.And(
+				query.KindIn(query.Start(), ad.Domain),
+				query.KindIn(query.Relationship(), ad.TrustedBy),
+				query.Equals(query.RelationshipProperty(ad.TrustType.String()), "ParentChild"),
+			)
+		},
+	}); err != nil {
 		return nil, err
 	} else {
-		return rels, nil
+		alldomains := pathSet.AllNodes()
+		if alldomains.Len() == 0 {
+			alldomains.Add(root)
+		}
+		return alldomains, nil
 	}
 }
 
-func FetchCanAbuseUPNCertMappingRels(tx graph.Transaction, node *graph.Node) ([]*graph.Relationship, error) {
-	if rels, err := ops.FetchRelationships(tx.Relationships().Filterf(func() graph.Criteria {
-		return query.And(
-			query.Equals(query.StartID(), node.ID),
-			query.Kind(query.Relationship(), ad.CanAbuseUPNCertMapping),
-			query.Kind(query.End(), ad.Entity),
-		)
-	})); err != nil {
-		return nil, err
-	} else {
-		return rels, nil
-	}
+func FetchNodesWithDCForEdge(tx graph.Transaction, rootNode *graph.Node) (graph.NodeSet, error) {
+	return ops.AcyclicTraverseTerminals(tx, ops.TraversalPlan{
+		Root:      rootNode,
+		Direction: graph.DirectionInbound,
+		BranchQuery: func() graph.Criteria {
+			return query.And(
+				query.KindIn(query.Start(), ad.Computer),
+				query.KindIn(query.Relationship(), ad.DCFor),
+			)
+		},
+	})
 }
 
 func FetchEnterpriseCAsCertChainPathToDomain(tx graph.Transaction, enterpriseCA, domain *graph.Node) (graph.PathSet, error) {
@@ -1610,12 +1699,12 @@ func fetchFirstDegreeNodes(tx graph.Transaction, targetNode *graph.Node, relKind
 	))
 }
 
-func FetchAttackersForEscalations9and10(tx graph.Transaction, victimBitmap cardinality.Duplex[uint32], scenarioB bool) ([]graph.ID, error) {
+func FetchAttackersForEscalations9and10(tx graph.Transaction, victimBitmap cardinality.Duplex[uint64], scenarioB bool) ([]graph.ID, error) {
 	if attackers, err := ops.FetchStartNodeIDs(tx.Relationships().Filterf(func() graph.Criteria {
 		criteria := query.And(
 			query.KindIn(query.Start(), ad.Group, ad.User, ad.Computer),
 			query.KindIn(query.Relationship(), ad.GenericAll, ad.GenericWrite, ad.Owns, ad.WriteOwner, ad.WriteDACL),
-			query.InIDs(query.EndID(), cardinality.DuplexToGraphIDs(victimBitmap)...),
+			query.InIDs(query.EndID(), graph.DuplexToGraphIDs(victimBitmap)...),
 		)
 		if scenarioB {
 			return query.And(criteria, query.KindIn(query.End(), ad.Computer))
@@ -1632,4 +1721,17 @@ func FetchCertTemplateCAs(tx graph.Transaction, certTemplate *graph.Node) (graph
 	return ops.FetchEndNodes(tx.Relationships().Filter(
 		FilterPublishedCAs(certTemplate),
 	))
+}
+
+func FetchAuthUsersAndEveryoneGroups(tx graph.Transaction, domainSID string) (graph.NodeSet, error) {
+	return ops.FetchNodeSet(tx.Nodes().Filterf(func() graph.Criteria {
+		return query.And(
+			query.Kind(query.Node(), ad.Group),
+			query.Equals(query.NodeProperty(ad.DomainSID.String()), domainSID),
+			query.Or(
+				query.StringEndsWith(query.NodeProperty(common.ObjectID.String()), AuthenticatedUsersSuffix),
+				query.StringEndsWith(query.NodeProperty(common.ObjectID.String()), EveryoneSuffix),
+			),
+		)
+	}))
 }

@@ -40,11 +40,16 @@ func newAuditLog(context context.Context, entry model.AuditEntry, idResolver aut
 
 	auditLog := model.AuditLog{
 		Action:          entry.Action,
-		Fields:          types.JSONUntypedObject(entry.Model.AuditData()),
 		RequestID:       bheCtx.RequestID,
 		SourceIpAddress: bheCtx.RequestIP,
-		Status:          string(entry.Status),
+		Status:          entry.Status,
 		CommitID:        entry.CommitID,
+	}
+
+	if entry.Model != nil {
+		auditLog.Fields = types.JSONUntypedObject(entry.Model.AuditData())
+	} else {
+		auditLog.Fields = types.JSONUntypedObject{}
 	}
 
 	if entry.ErrorMsg != "" {
@@ -66,7 +71,7 @@ func newAuditLog(context context.Context, entry model.AuditEntry, idResolver aut
 }
 
 func (s *BloodhoundDB) AppendAuditLog(ctx context.Context, entry model.AuditEntry) error {
-	if auditLog, err := newAuditLog(ctx, entry, s.idResolver); err != nil && err != ErrAuthContextInvalid {
+	if auditLog, err := newAuditLog(ctx, entry, s.idResolver); err != nil && !errors.Is(err, ErrAuthContextInvalid) {
 		return fmt.Errorf("audit log append: %w", err)
 	} else {
 		return s.CreateAuditLog(ctx, auditLog)
@@ -89,7 +94,7 @@ func (s *BloodhoundDB) ListAuditLogs(ctx context.Context, before, after time.Tim
 	// See the comments here for more information: https://github.com/SpecterOps/BloodHound/pull/297#issuecomment-1887640827
 
 	if filter.SQLString != "" {
-		result = s.db.Model(&auditLogs).WithContext(ctx).Where(filter.SQLString, filter.Params).Count(&count)
+		result = s.db.Model(&auditLogs).WithContext(ctx).Where(filter.SQLString, filter.Params...).Count(&count)
 	} else {
 		result = s.db.Model(&auditLogs).WithContext(ctx).Count(&count)
 	}
@@ -103,7 +108,7 @@ func (s *BloodhoundDB) ListAuditLogs(ctx context.Context, before, after time.Tim
 	}
 
 	if filter.SQLString != "" {
-		result = cursor.Where(filter.SQLString, filter.Params).Order(order).Find(&auditLogs)
+		result = cursor.Where(filter.SQLString, filter.Params...).Order(order).Find(&auditLogs)
 	} else {
 		result = cursor.Order(order).Find(&auditLogs)
 	}

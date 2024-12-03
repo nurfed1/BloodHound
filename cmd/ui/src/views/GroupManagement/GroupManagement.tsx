@@ -15,17 +15,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { faGem } from '@fortawesome/free-solid-svg-icons';
-import { DropdownOption, EntityKinds, GroupManagementContent, searchbarActions } from 'bh-shared-ui';
+import {
+    DropdownOption,
+    EntityKinds,
+    GroupManagementContent,
+    Permission,
+    searchbarActions,
+    TIER_ZERO_LABEL,
+    TIER_ZERO_TAG,
+} from 'bh-shared-ui';
 import { AssetGroup, AssetGroupMember } from 'js-client-library';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { TIER_ZERO_LABEL, TIER_ZERO_TAG } from 'src/constants';
 import { setSelectedNode } from 'src/ducks/entityinfo/actions';
 import { SelectedNode } from 'src/ducks/entityinfo/types';
 import { ROUTE_EXPLORE } from 'src/ducks/global/routes';
 import { useAppDispatch, useAppSelector } from 'src/store';
 import EntityInfoPanel from '../Explore/EntityInfo/EntityInfoPanel';
 import { dataCollectionMessage } from '../QA/utils';
+import usePermissions from 'src/hooks/usePermissions/usePermissions';
 
 const GroupManagement = () => {
     const dispatch = useAppDispatch();
@@ -35,6 +43,8 @@ const GroupManagement = () => {
 
     // Kept out of the shared UI due to diff between GraphNodeTypes across apps
     const [openNode, setOpenNode] = useState<SelectedNode | null>(null);
+
+    const { checkPermission } = usePermissions();
 
     const handleClickMember = (member: AssetGroupMember) => {
         setOpenNode({
@@ -82,6 +92,7 @@ const GroupManagement = () => {
             onShowNodeInExplore={handleShowNodeInExplore}
             onClickMember={handleClickMember}
             mapAssetGroups={mapAssetGroups}
+            userHasEditPermissions={checkPermission(Permission.GRAPH_DB_WRITE)}
         />
     );
 };

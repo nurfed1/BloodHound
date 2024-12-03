@@ -40,8 +40,10 @@ type PermissionSet struct {
 
 	CollectionManageJobs model.Permission
 
-	GraphDBRead  model.Permission
-	GraphDBWrite model.Permission
+	GraphDBIngest model.Permission
+	GraphDBMutate model.Permission
+	GraphDBRead   model.Permission
+	GraphDBWrite  model.Permission
 
 	SavedQueriesRead  model.Permission
 	SavedQueriesWrite model.Permission
@@ -64,6 +66,8 @@ func (s PermissionSet) All() model.Permissions {
 		s.ClientsRead,
 		s.ClientsTasking,
 		s.CollectionManageJobs,
+		s.GraphDBIngest,
+		s.GraphDBMutate,
 		s.GraphDBRead,
 		s.GraphDBWrite,
 		s.SavedQueriesRead,
@@ -72,6 +76,7 @@ func (s PermissionSet) All() model.Permissions {
 	}
 }
 
+// Permissions Note: Not the only source of truth, changes here must be added to a migration *.sql file to update the permissions table
 func Permissions() PermissionSet {
 	return PermissionSet{
 		AppReadApplicationConfiguration:  model.NewPermission("app", "ReadAppConfig"),
@@ -93,8 +98,10 @@ func Permissions() PermissionSet {
 
 		CollectionManageJobs: model.NewPermission("collection", "ManageJobs"),
 
-		GraphDBRead:  model.NewPermission("graphdb", "Read"),
-		GraphDBWrite: model.NewPermission("graphdb", "Write"),
+		GraphDBIngest: model.NewPermission("graphdb", "Ingest"),
+		GraphDBMutate: model.NewPermission("graphdb", "Mutate"),
+		GraphDBRead:   model.NewPermission("graphdb", "Read"),
+		GraphDBWrite:  model.NewPermission("graphdb", "Write"),
 
 		SavedQueriesRead:  model.NewPermission("saved_queries", "Read"),
 		SavedQueriesWrite: model.NewPermission("saved_queries", "Write"),

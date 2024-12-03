@@ -125,11 +125,6 @@ type SAMLConfiguration struct {
 	ServiceProviderCertificateCAChain string `json:"sp_ca_chain"`
 }
 
-type SpecterAuthConfiguration struct {
-	InstanceUUID string `json:"instance_uuid"`
-	Token        string `json:"token"`
-}
-
 type DefaultAdminConfiguration struct {
 	PrincipalName string `json:"principal_name"`
 	Password      string `json:"password"`
@@ -140,35 +135,35 @@ type DefaultAdminConfiguration struct {
 }
 
 type Configuration struct {
-	Version                 int                       `json:"version"`
-	BindAddress             string                    `json:"bind_addr"`
-	NetTimeoutSeconds       int                       `json:"net_timeout_seconds"`
-	SlowQueryThreshold      int64                     `json:"slow_query_threshold"`
-	MaxGraphQueryCacheSize  int                       `json:"max_graphdb_cache_size"`
-	MaxAPICacheSize         int                       `json:"max_api_cache_size"`
-	MetricsPort             string                    `json:"metrics_port"`
-	RootURL                 serde.URL                 `json:"root_url"`
-	WorkDir                 string                    `json:"work_dir"`
-	LogLevel                string                    `json:"log_level"`
-	LogPath                 string                    `json:"log_path"`
-	TLS                     TLSConfiguration          `json:"tls"`
-	GraphDriver             string                    `json:"graph_driver"`
-	Database                DatabaseConfiguration     `json:"database"`
-	Neo4J                   DatabaseConfiguration     `json:"neo4j"`
-	Crypto                  CryptoConfiguration       `json:"crypto"`
-	SAML                    SAMLConfiguration         `json:"saml"`
-	SpecterAuth             SpecterAuthConfiguration  `json:"specter_auth"`
-	DefaultAdmin            DefaultAdminConfiguration `json:"default_admin"`
-	CollectorsBasePath      string                    `json:"collectors_base_path"`
-	DatapipeInterval        int                       `json:"datapipe_interval"`
-	EnableStartupWaitPeriod bool                      `json:"enable_startup_wait_period"`
-	EnableAPILogging        bool                      `json:"enable_api_logging"`
-	DisableAnalysis         bool                      `json:"disable_analysis"`
-	DisableCypherQC         bool                      `json:"disable_cypher_qc"`
-	DisableIngest           bool                      `json:"disable_ingest"`
-	DisableMigrations       bool                      `json:"disable_migrations"`
-	TraversalMemoryLimit    uint16                    `json:"traversal_memory_limit"`
-	AuthSessionTTLHours     int                       `json:"auth_session_ttl_hours"`
+	Version                      int                       `json:"version"`
+	BindAddress                  string                    `json:"bind_addr"`
+	SlowQueryThreshold           int64                     `json:"slow_query_threshold"`
+	MaxGraphQueryCacheSize       int                       `json:"max_graphdb_cache_size"`
+	MaxAPICacheSize              int                       `json:"max_api_cache_size"`
+	MetricsPort                  string                    `json:"metrics_port"`
+	RootURL                      serde.URL                 `json:"root_url"`
+	WorkDir                      string                    `json:"work_dir"`
+	LogLevel                     string                    `json:"log_level"`
+	LogPath                      string                    `json:"log_path"`
+	TLS                          TLSConfiguration          `json:"tls"`
+	GraphDriver                  string                    `json:"graph_driver"`
+	Database                     DatabaseConfiguration     `json:"database"`
+	Neo4J                        DatabaseConfiguration     `json:"neo4j"`
+	Crypto                       CryptoConfiguration       `json:"crypto"`
+	SAML                         SAMLConfiguration         `json:"saml"`
+	DefaultAdmin                 DefaultAdminConfiguration `json:"default_admin"`
+	CollectorsBasePath           string                    `json:"collectors_base_path"`
+	DatapipeInterval             int                       `json:"datapipe_interval"`
+	EnableStartupWaitPeriod      bool                      `json:"enable_startup_wait_period"`
+	EnableAPILogging             bool                      `json:"enable_api_logging"`
+	EnableCypherMutations        bool                      `json:"enable_cypher_mutations"`
+	DisableAnalysis              bool                      `json:"disable_analysis"`
+	DisableCypherComplexityLimit bool                      `json:"disable_cypher_complexity_limit"`
+	DisableIngest                bool                      `json:"disable_ingest"`
+	DisableMigrations            bool                      `json:"disable_migrations"`
+	GraphQueryMemoryLimit        uint16                    `json:"graph_query_memory_limit"`
+	AuthSessionTTLHours          int                       `json:"auth_session_ttl_hours"`
+	FedRAMPEULAText              string                    `json:"fedramp_eula_text"` // Enterprise only
 }
 
 func (s Configuration) AuthSessionTTL() time.Duration {

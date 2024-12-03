@@ -20,7 +20,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/specterops/bloodhound/cypher/model"
+	"github.com/specterops/bloodhound/cypher/models/cypher"
+
 	"github.com/specterops/bloodhound/cypher/parser"
 	"github.com/specterops/bloodhound/dawgs/graph"
 )
@@ -28,12 +29,12 @@ import (
 type VariableVisitor struct {
 	BaseVisitor
 
-	Variable *model.Variable
+	Variable *cypher.Variable
 }
 
 func NewVariableVisitor() *VariableVisitor {
 	return &VariableVisitor{
-		Variable: model.NewVariable(),
+		Variable: cypher.NewVariable(),
 	}
 }
 
@@ -41,14 +42,11 @@ func (s *VariableVisitor) EnterOC_SymbolicName(ctx *parser.OC_SymbolicNameContex
 	s.Variable.Symbol = ctx.GetText()
 }
 
-func (s *VariableVisitor) ExitOC_SymbolicName(ctx *parser.OC_SymbolicNameContext) {
-}
-
 type ProjectionVisitor struct {
 	BaseVisitor
 
-	currentItem *model.ProjectionItem
-	Projection  *model.Projection
+	currentItem *cypher.ProjectionItem
+	Projection  *cypher.Projection
 }
 
 func NewProjectionVisitor(ctx *parser.OC_ProjectionBodyContext) *ProjectionVisitor {
@@ -59,11 +57,8 @@ func NewProjectionVisitor(ctx *parser.OC_ProjectionBodyContext) *ProjectionVisit
 	}
 
 	return &ProjectionVisitor{
-		Projection: model.NewProjection(distinct),
+		Projection: cypher.NewProjection(distinct),
 	}
-}
-
-func (s *ProjectionVisitor) EnterOC_ProjectionBody(ctx *parser.OC_ProjectionBodyContext) {
 }
 
 func (s *ProjectionVisitor) ExitOC_ProjectionBody(ctx *parser.OC_ProjectionBodyContext) {
@@ -77,7 +72,7 @@ func (s *ProjectionVisitor) EnterOC_ProjectionItems(ctx *parser.OC_ProjectionIte
 		// Only look at the first token for a greedy projection
 		switch token := operators.NextToken(); token {
 		case TokenLiteralAsterisk:
-			s.Projection.AddItem(model.NewGreedyProjectionItem())
+			s.Projection.AddItem(cypher.NewGreedyProjectionItem())
 
 		case TokenLiteralComma:
 		default:
@@ -86,11 +81,8 @@ func (s *ProjectionVisitor) EnterOC_ProjectionItems(ctx *parser.OC_ProjectionIte
 	}
 }
 
-func (s *ProjectionVisitor) ExitOC_ProjectionItems(ctx *parser.OC_ProjectionItemsContext) {
-}
-
 func (s *ProjectionVisitor) EnterOC_ProjectionItem(ctx *parser.OC_ProjectionItemContext) {
-	s.currentItem = model.NewProjectionItem()
+	s.currentItem = cypher.NewProjectionItem()
 }
 
 func (s *ProjectionVisitor) ExitOC_ProjectionItem(ctx *parser.OC_ProjectionItemContext) {
@@ -106,10 +98,7 @@ func (s *ProjectionVisitor) ExitOC_Variable(ctx *parser.OC_VariableContext) {
 }
 
 func (s *ProjectionVisitor) EnterOC_Order(ctx *parser.OC_OrderContext) {
-	s.Projection.Order = &model.Order{}
-}
-
-func (s *ProjectionVisitor) ExitOC_Order(ctx *parser.OC_OrderContext) {
+	s.Projection.Order = &cypher.Order{}
 }
 
 func (s ProjectionVisitor) EnterOC_SortItem(ctx *parser.OC_SortItemContext) {
@@ -119,7 +108,7 @@ func (s ProjectionVisitor) EnterOC_SortItem(ctx *parser.OC_SortItemContext) {
 func (s ProjectionVisitor) ExitOC_SortItem(ctx *parser.OC_SortItemContext) {
 	var (
 		expression = s.ctx.Exit().(*ExpressionVisitor).Expression
-		sortItem   = &model.SortItem{
+		sortItem   = &cypher.SortItem{
 			Ascending:  true,
 			Expression: expression,
 		}
@@ -138,7 +127,7 @@ func (s *ProjectionVisitor) EnterOC_Skip(ctx *parser.OC_SkipContext) {
 
 func (s *ProjectionVisitor) ExitOC_Skip(ctx *parser.OC_SkipContext) {
 	expression := s.ctx.Exit().(*ExpressionVisitor).Expression
-	s.Projection.Skip = &model.Skip{
+	s.Projection.Skip = &cypher.Skip{
 		Value: expression,
 	}
 }
@@ -149,7 +138,7 @@ func (s *ProjectionVisitor) EnterOC_Limit(ctx *parser.OC_LimitContext) {
 
 func (s *ProjectionVisitor) ExitOC_Limit(ctx *parser.OC_LimitContext) {
 	expression := s.ctx.Exit().(*ExpressionVisitor).Expression
-	s.Projection.Limit = &model.Limit{
+	s.Projection.Limit = &cypher.Limit{
 		Value: expression,
 	}
 }
@@ -183,12 +172,12 @@ func (s *ProjectionVisitor) ExitOC_Expression(ctx *parser.OC_ExpressionContext) 
 type RangeLiteralVisitor struct {
 	BaseVisitor
 
-	PatternRange *model.PatternRange
+	PatternRange *cypher.PatternRange
 }
 
 func NewRangeLiteralVisitor() *RangeLiteralVisitor {
 	return &RangeLiteralVisitor{
-		PatternRange: &model.PatternRange{},
+		PatternRange: &cypher.PatternRange{},
 	}
 }
 
@@ -202,18 +191,15 @@ func (s *RangeLiteralVisitor) EnterOC_IntegerLiteral(ctx *parser.OC_IntegerLiter
 	}
 }
 
-func (s *RangeLiteralVisitor) ExitOC_IntegerLiteral(ctx *parser.OC_IntegerLiteralContext) {
-}
-
 type WithVisitor struct {
 	BaseVisitor
 
-	With *model.With
+	With *cypher.With
 }
 
 func NewWithVisitor() *WithVisitor {
 	return &WithVisitor{
-		With: model.NewWith(),
+		With: cypher.NewWith(),
 	}
 }
 
@@ -236,7 +222,7 @@ func (s *WithVisitor) ExitOC_Where(ctx *parser.OC_WhereContext) {
 type MatchVisitor struct {
 	BaseVisitor
 
-	Match *model.Match
+	Match *cypher.Match
 }
 
 func NewMatchVisitor(ctx *parser.OC_MatchContext) *MatchVisitor {
@@ -247,7 +233,7 @@ func NewMatchVisitor(ctx *parser.OC_MatchContext) *MatchVisitor {
 	}
 
 	return &MatchVisitor{
-		Match: model.NewMatch(optional),
+		Match: cypher.NewMatch(optional),
 	}
 }
 
@@ -270,12 +256,12 @@ func (s *MatchVisitor) ExitOC_Pattern(ctx *parser.OC_PatternContext) {
 type UnwindVisitor struct {
 	BaseVisitor
 
-	Unwind *model.Unwind
+	Unwind *cypher.Unwind
 }
 
 func NewUnwindVisitor() *UnwindVisitor {
 	return &UnwindVisitor{
-		Unwind: model.NewUnwind(),
+		Unwind: cypher.NewUnwind(),
 	}
 }
 
@@ -298,12 +284,12 @@ func (s *UnwindVisitor) ExitOC_Variable(ctx *parser.OC_VariableContext) {
 type ReadingClauseVisitor struct {
 	BaseVisitor
 
-	ReadingClause *model.ReadingClause
+	ReadingClause *cypher.ReadingClause
 }
 
 func NewReadingClauseVisitor() *ReadingClauseVisitor {
 	return &ReadingClauseVisitor{
-		ReadingClause: model.NewReadingClause(),
+		ReadingClause: cypher.NewReadingClause(),
 	}
 }
 
@@ -326,20 +312,17 @@ func (s *ReadingClauseVisitor) ExitOC_Unwind(ctx *parser.OC_UnwindContext) {
 type SinglePartQueryVisitor struct {
 	BaseVisitor
 
-	Query *model.SinglePartQuery
+	Query *cypher.SinglePartQuery
 }
 
 func NewSinglePartQueryVisitor() *SinglePartQueryVisitor {
 	return &SinglePartQueryVisitor{
-		Query: model.NewSinglePartQuery(),
+		Query: cypher.NewSinglePartQuery(),
 	}
 }
 
 func (s *SinglePartQueryVisitor) EnterOC_Return(ctx *parser.OC_ReturnContext) {
-	s.Query.Return = &model.Return{}
-}
-
-func (s *SinglePartQueryVisitor) ExitOC_Return(ctx *parser.OC_ReturnContext) {
+	s.Query.Return = &cypher.Return{}
 }
 
 func (s *SinglePartQueryVisitor) EnterOC_ProjectionBody(ctx *parser.OC_ProjectionBodyContext) {
@@ -363,35 +346,30 @@ func (s *SinglePartQueryVisitor) EnterOC_UpdatingClause(ctx *parser.OC_UpdatingC
 }
 
 func (s *SinglePartQueryVisitor) ExitOC_UpdatingClause(ctx *parser.OC_UpdatingClauseContext) {
+	s.ctx.HasMutation = true
 	s.Query.AddUpdatingClause(s.ctx.Exit().(*UpdatingClauseVisitor).UpdatingClause)
 }
 
 type MultiPartQueryVisitor struct {
 	BaseVisitor
 
-	currentPart *model.MultiPartQueryPart
-	Query       *model.MultiPartQuery
+	Query *cypher.MultiPartQuery
 }
 
 func NewMultiPartQueryVisitor() *MultiPartQueryVisitor {
 	return &MultiPartQueryVisitor{
-		Query: model.NewMultiPartQuery(),
+		Query: cypher.NewMultiPartQuery(),
 	}
 }
 
 func (s *MultiPartQueryVisitor) EnterOC_ReadingClause(ctx *parser.OC_ReadingClauseContext) {
-	s.currentPart = model.NewMultiPartQueryPart()
-	s.Query.Parts = append(s.Query.Parts, s.currentPart)
-
 	s.ctx.Enter(NewReadingClauseVisitor())
 }
 
 func (s *MultiPartQueryVisitor) ExitOC_ReadingClause(ctx *parser.OC_ReadingClauseContext) {
-	if s.currentPart != nil {
-		s.currentPart.AddReadingClause(s.ctx.Exit().(*ReadingClauseVisitor).ReadingClause)
-	} else {
-		s.ctx.AddErrors(ErrInvalidInput)
-	}
+	part := cypher.NewMultiPartQueryPart()
+	part.AddReadingClause(s.ctx.Exit().(*ReadingClauseVisitor).ReadingClause)
+	s.Query.Parts = append(s.Query.Parts, part)
 }
 
 func (s *MultiPartQueryVisitor) EnterOC_UpdatingClause(ctx *parser.OC_UpdatingClauseContext) {
@@ -399,11 +377,10 @@ func (s *MultiPartQueryVisitor) EnterOC_UpdatingClause(ctx *parser.OC_UpdatingCl
 }
 
 func (s *MultiPartQueryVisitor) ExitOC_UpdatingClause(ctx *parser.OC_UpdatingClauseContext) {
-	if s.currentPart != nil {
-		s.currentPart.AddUpdatingClause(s.ctx.Exit().(*UpdatingClauseVisitor).UpdatingClause)
-	} else {
-		s.ctx.AddErrors(ErrInvalidInput)
-	}
+	s.ctx.HasMutation = true
+	part := cypher.NewMultiPartQueryPart()
+	part.AddUpdatingClause(s.ctx.Exit().(*UpdatingClauseVisitor).UpdatingClause)
+	s.Query.Parts = append(s.Query.Parts, part)
 }
 
 func (s *MultiPartQueryVisitor) EnterOC_With(ctx *parser.OC_WithContext) {
@@ -411,11 +388,9 @@ func (s *MultiPartQueryVisitor) EnterOC_With(ctx *parser.OC_WithContext) {
 }
 
 func (s *MultiPartQueryVisitor) ExitOC_With(ctx *parser.OC_WithContext) {
-	if s.currentPart != nil {
-		s.currentPart.With = s.ctx.Exit().(*WithVisitor).With
-	} else {
-		s.ctx.AddErrors(ErrInvalidInput)
-	}
+	part := cypher.NewMultiPartQueryPart()
+	part.With = s.ctx.Exit().(*WithVisitor).With
+	s.Query.Parts = append(s.Query.Parts, part)
 }
 
 func (s *MultiPartQueryVisitor) EnterOC_SinglePartQuery(ctx *parser.OC_SinglePartQueryContext) {
@@ -429,45 +404,15 @@ func (s *MultiPartQueryVisitor) ExitOC_SinglePartQuery(ctx *parser.OC_SinglePart
 type QueryVisitor struct {
 	BaseVisitor
 
-	Query *model.RegularQuery
-}
-
-func (s *QueryVisitor) EnterOC_Cypher(ctx *parser.OC_CypherContext) {
-}
-
-func (s *QueryVisitor) ExitOC_Cypher(ctx *parser.OC_CypherContext) {
-}
-
-func (s *QueryVisitor) EnterOC_Query(ctx *parser.OC_QueryContext) {
-}
-
-func (s *QueryVisitor) ExitOC_Query(ctx *parser.OC_QueryContext) {
-}
-
-func (s *QueryVisitor) EnterOC_Statement(ctx *parser.OC_StatementContext) {
-}
-
-func (s *QueryVisitor) ExitOC_Statement(ctx *parser.OC_StatementContext) {
-}
-
-func (s *QueryVisitor) EnterOC_QueryOptions(ctx *parser.OC_QueryOptionsContext) {
-}
-
-func (s *QueryVisitor) ExitOC_QueryOptions(ctx *parser.OC_QueryOptionsContext) {
+	Query *cypher.RegularQuery
 }
 
 func (s *QueryVisitor) EnterOC_RegularQuery(ctx *parser.OC_RegularQueryContext) {
-	s.Query = model.NewRegularQuery()
-}
-
-func (s *QueryVisitor) ExitOC_RegularQuery(ctx *parser.OC_RegularQueryContext) {
+	s.Query = cypher.NewRegularQuery()
 }
 
 func (s *QueryVisitor) EnterOC_SingleQuery(ctx *parser.OC_SingleQueryContext) {
-	s.Query.SingleQuery = model.NewSingleQuery()
-}
-
-func (s *QueryVisitor) ExitOC_SingleQuery(ctx *parser.OC_SingleQueryContext) {
+	s.Query.SingleQuery = cypher.NewSingleQuery()
 }
 
 func (s *QueryVisitor) EnterOC_MultiPartQuery(ctx *parser.OC_MultiPartQueryContext) {
@@ -489,12 +434,12 @@ func (s *QueryVisitor) ExitOC_SinglePartQuery(ctx *parser.OC_SinglePartQueryCont
 type RemoveVisitor struct {
 	BaseVisitor
 
-	currentItem *model.RemoveItem
-	Remove      *model.Remove
+	currentItem *cypher.RemoveItem
+	Remove      *cypher.Remove
 }
 
 func (s *RemoveVisitor) EnterOC_RemoveItem(ctx *parser.OC_RemoveItemContext) {
-	s.currentItem = &model.RemoveItem{}
+	s.currentItem = &cypher.RemoveItem{}
 }
 
 func (s *RemoveVisitor) ExitOC_RemoveItem(ctx *parser.OC_RemoveItemContext) {
@@ -506,22 +451,22 @@ func (s *RemoveVisitor) EnterOC_NodeLabels(ctx *parser.OC_NodeLabelsContext) {
 }
 
 func (s *RemoveVisitor) ExitOC_NodeLabels(ctx *parser.OC_NodeLabelsContext) {
-	s.currentItem.KindMatcher.(*model.KindMatcher).Kinds = s.ctx.Exit().(*NodeLabelsVisitor).Kinds
+	s.currentItem.KindMatcher.Kinds = s.ctx.Exit().(*NodeLabelsVisitor).Kinds
 }
 
 func (s *RemoveVisitor) EnterOC_Variable(ctx *parser.OC_VariableContext) {
-	s.currentItem.KindMatcher = &model.KindMatcher{}
+	s.currentItem.KindMatcher = &cypher.KindMatcher{}
 
 	s.ctx.Enter(NewVariableVisitor())
 }
 
 func (s *RemoveVisitor) ExitOC_Variable(ctx *parser.OC_VariableContext) {
-	s.currentItem.KindMatcher.(*model.KindMatcher).Reference = s.ctx.Exit().(*VariableVisitor).Variable
+	s.currentItem.KindMatcher.Reference = s.ctx.Exit().(*VariableVisitor).Variable
 }
 
 func (s *RemoveVisitor) EnterOC_PropertyExpression(ctx *parser.OC_PropertyExpressionContext) {
 	s.ctx.Enter(&PropertyExpressionVisitor{
-		PropertyLookup: &model.PropertyLookup{},
+		PropertyLookup: &cypher.PropertyLookup{},
 	})
 }
 
@@ -532,7 +477,7 @@ func (s *RemoveVisitor) ExitOC_PropertyExpression(ctx *parser.OC_PropertyExpress
 type DeleteVisitor struct {
 	BaseVisitor
 
-	Delete *model.Delete
+	Delete *cypher.Delete
 }
 
 func (s *DeleteVisitor) EnterOC_Expression(ctx *parser.OC_ExpressionContext) {
@@ -546,7 +491,7 @@ func (s *DeleteVisitor) ExitOC_Expression(ctx *parser.OC_ExpressionContext) {
 type CreateVisitor struct {
 	BaseVisitor
 
-	Create *model.Create
+	Create *cypher.Create
 }
 
 func (s *CreateVisitor) EnterOC_Pattern(ctx *parser.OC_PatternContext) {
@@ -557,21 +502,66 @@ func (s *CreateVisitor) ExitOC_Pattern(ctx *parser.OC_PatternContext) {
 	s.Create.Pattern = s.ctx.Exit().(*PatternVisitor).PatternParts
 }
 
+type MergeVisitor struct {
+	BaseVisitor
+
+	Merge *cypher.Merge
+}
+
+func (s *MergeVisitor) EnterOC_PatternPart(ctx *parser.OC_PatternPartContext) {
+	s.ctx.Enter(&PatternPartVisitor{
+		PatternPart: &cypher.PatternPart{},
+	})
+}
+
+func (s *MergeVisitor) ExitOC_PatternPart(ctx *parser.OC_PatternPartContext) {
+	s.Merge.PatternPart = s.ctx.Exit().(*PatternPartVisitor).PatternPart
+}
+
+func (s *MergeVisitor) EnterOC_MergeAction(ctx *parser.OC_MergeActionContext) {
+	s.ctx.Enter(&MergeActionVisitor{
+		MergeAction: &cypher.MergeAction{
+			OnCreate: HasTokens(ctx, parser.CypherLexerON, parser.CypherLexerCREATE),
+			OnMatch:  HasTokens(ctx, parser.CypherLexerON, parser.CypherLexerMATCH),
+		},
+	})
+}
+
+func (s *MergeVisitor) ExitOC_MergeAction(ctx *parser.OC_MergeActionContext) {
+	s.Merge.MergeActions = append(s.Merge.MergeActions, s.ctx.Exit().(*MergeActionVisitor).MergeAction)
+}
+
+type MergeActionVisitor struct {
+	BaseVisitor
+
+	MergeAction *cypher.MergeAction
+}
+
+func (s *MergeActionVisitor) EnterOC_Set(ctx *parser.OC_SetContext) {
+	s.ctx.Enter(&SetVisitor{
+		Set: &cypher.Set{},
+	})
+}
+
+func (s *MergeActionVisitor) ExitOC_Set(ctx *parser.OC_SetContext) {
+	s.MergeAction.Set = s.ctx.Exit().(*SetVisitor).Set
+}
+
 type UpdatingClauseVisitor struct {
 	BaseVisitor
 
-	UpdatingClause *model.UpdatingClause
+	UpdatingClause *cypher.UpdatingClause
 }
 
 func NewUpdatingClauseVisitor() *UpdatingClauseVisitor {
 	return &UpdatingClauseVisitor{
-		UpdatingClause: &model.UpdatingClause{},
+		UpdatingClause: &cypher.UpdatingClause{},
 	}
 }
 
 func (s *UpdatingClauseVisitor) EnterOC_Create(ctx *parser.OC_CreateContext) {
 	s.ctx.Enter(&CreateVisitor{
-		Create: &model.Create{
+		Create: &cypher.Create{
 			Unique: HasTokens(ctx, parser.CypherLexerUNIQUE),
 		},
 	})
@@ -583,7 +573,7 @@ func (s *UpdatingClauseVisitor) ExitOC_Create(ctx *parser.OC_CreateContext) {
 
 func (s *UpdatingClauseVisitor) EnterOC_Delete(ctx *parser.OC_DeleteContext) {
 	s.ctx.Enter(&DeleteVisitor{
-		Delete: &model.Delete{
+		Delete: &cypher.Delete{
 			Detach: HasTokens(ctx, parser.CypherLexerDETACH),
 		},
 	})
@@ -595,7 +585,7 @@ func (s *UpdatingClauseVisitor) ExitOC_Delete(ctx *parser.OC_DeleteContext) {
 
 func (s *UpdatingClauseVisitor) EnterOC_Remove(ctx *parser.OC_RemoveContext) {
 	s.ctx.Enter(&RemoveVisitor{
-		Remove: &model.Remove{},
+		Remove: &cypher.Remove{},
 	})
 }
 
@@ -605,7 +595,7 @@ func (s *UpdatingClauseVisitor) ExitOC_Remove(ctx *parser.OC_RemoveContext) {
 
 func (s *UpdatingClauseVisitor) EnterOC_Set(ctx *parser.OC_SetContext) {
 	s.ctx.Enter(&SetVisitor{
-		Set: &model.Set{},
+		Set: &cypher.Set{},
 	})
 }
 
@@ -613,16 +603,20 @@ func (s *UpdatingClauseVisitor) ExitOC_Set(ctx *parser.OC_SetContext) {
 	s.UpdatingClause.Clause = s.ctx.Exit().(*SetVisitor).Set
 }
 
+func (s *UpdatingClauseVisitor) EnterOC_Merge(ctx *parser.OC_MergeContext) {
+	s.ctx.Enter(&MergeVisitor{
+		Merge: &cypher.Merge{},
+	})
+}
+
+func (s *UpdatingClauseVisitor) ExitOC_Merge(ctx *parser.OC_MergeContext) {
+	s.UpdatingClause.Clause = s.ctx.Exit().(*MergeVisitor).Merge
+}
+
 type NodeLabelsVisitor struct {
 	BaseVisitor
 
 	Kinds graph.Kinds
-}
-
-func (s *NodeLabelsVisitor) EnterOC_NodeLabel(ctx *parser.OC_NodeLabelContext) {
-}
-
-func (s *NodeLabelsVisitor) ExitOC_NodeLabel(ctx *parser.OC_NodeLabelContext) {
 }
 
 func (s *NodeLabelsVisitor) EnterOC_LabelName(ctx *parser.OC_LabelNameContext) {
@@ -637,8 +631,8 @@ func (s *NodeLabelsVisitor) ExitOC_LabelName(ctx *parser.OC_LabelNameContext) {
 type SetVisitor struct {
 	BaseVisitor
 
-	currentItem *model.SetItem
-	Set         *model.Set
+	currentItem *cypher.SetItem
+	Set         *cypher.Set
 }
 
 func (s *SetVisitor) EnterOC_NodeLabels(ctx *parser.OC_NodeLabelsContext) {
@@ -660,17 +654,17 @@ func (s *SetVisitor) ExitOC_Expression(ctx *parser.OC_ExpressionContext) {
 // TODO: Break this out into a SetItem visitor
 func (s *SetVisitor) EnterOC_SetItem(ctx *parser.OC_SetItemContext) {
 	if HasTokens(ctx, TokenTypeEquals) {
-		s.currentItem = &model.SetItem{
-			Operator: model.OperatorAssignment,
+		s.currentItem = &cypher.SetItem{
+			Operator: cypher.OperatorAssignment,
 		}
 	} else if HasTokens(ctx, TokenTypeAdditionAssignment) {
-		s.currentItem = &model.SetItem{
-			Operator: model.OperatorAdditionAssignment,
+		s.currentItem = &cypher.SetItem{
+			Operator: cypher.OperatorAdditionAssignment,
 		}
 	} else {
 		// Assume that this means we're assigning a label
-		s.currentItem = &model.SetItem{
-			Operator: model.OperatorLabelAssignment,
+		s.currentItem = &cypher.SetItem{
+			Operator: cypher.OperatorLabelAssignment,
 		}
 	}
 }
@@ -689,7 +683,7 @@ func (s *SetVisitor) ExitOC_Variable(ctx *parser.OC_VariableContext) {
 
 func (s *SetVisitor) EnterOC_PropertyExpression(ctx *parser.OC_PropertyExpressionContext) {
 	s.ctx.Enter(&PropertyExpressionVisitor{
-		PropertyLookup: &model.PropertyLookup{},
+		PropertyLookup: &cypher.PropertyLookup{},
 	})
 }
 
@@ -700,7 +694,7 @@ func (s *SetVisitor) ExitOC_PropertyExpression(ctx *parser.OC_PropertyExpression
 type PropertyExpressionVisitor struct {
 	BaseVisitor
 
-	PropertyLookup *model.PropertyLookup
+	PropertyLookup *cypher.PropertyLookup
 }
 
 func (s *PropertyExpressionVisitor) EnterOC_Atom(ctx *parser.OC_AtomContext) {
@@ -709,12 +703,6 @@ func (s *PropertyExpressionVisitor) EnterOC_Atom(ctx *parser.OC_AtomContext) {
 
 func (s *PropertyExpressionVisitor) ExitOC_Atom(ctx *parser.OC_AtomContext) {
 	s.PropertyLookup.Atom = s.ctx.Exit().(*AtomVisitor).Atom
-}
-
-func (s *PropertyExpressionVisitor) EnterOC_PropertyLookup(ctx *parser.OC_PropertyLookupContext) {
-}
-
-func (s *PropertyExpressionVisitor) ExitOC_PropertyLookup(ctx *parser.OC_PropertyLookupContext) {
 }
 
 func (s *PropertyExpressionVisitor) EnterOC_PropertyKeyName(ctx *parser.OC_PropertyKeyNameContext) {

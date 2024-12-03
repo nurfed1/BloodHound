@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gofrs/uuid"
+	"github.com/specterops/bloodhound/src/database/types"
 	"github.com/specterops/bloodhound/src/database/types/null"
 	"github.com/specterops/bloodhound/src/serde"
 )
@@ -94,7 +95,7 @@ func (s Permissions) IsString(column string) bool {
 }
 
 func (s Permissions) GetFilterableColumns() []string {
-	var columns = make([]string, 0)
+	columns := make([]string, 0)
 	for column := range s.ValidFilters() {
 		columns = append(columns, column)
 	}
@@ -105,7 +106,7 @@ func (s Permissions) GetValidFilterPredicatesAsStrings(column string) ([]string,
 	if predicates, validColumn := s.ValidFilters()[column]; !validColumn {
 		return []string{}, fmt.Errorf("the specified column cannot be filtered")
 	} else {
-		var stringPredicates = make([]string, 0)
+		stringPredicates := make([]string, 0)
 		for _, predicate := range predicates {
 			stringPredicates = append(stringPredicates, string(predicate))
 		}
@@ -211,7 +212,7 @@ func (s AuthTokens) IsString(column string) bool {
 }
 
 func (s AuthTokens) GetFilterableColumns() []string {
-	var columns = make([]string, 0)
+	columns := make([]string, 0)
 	for column := range s.ValidFilters() {
 		columns = append(columns, column)
 	}
@@ -222,7 +223,7 @@ func (s AuthTokens) GetValidFilterPredicatesAsStrings(column string) ([]string, 
 	if predicates, validColumn := s.ValidFilters()[column]; !validColumn {
 		return []string{}, fmt.Errorf("the specified column cannot be filtered")
 	} else {
-		var stringPredicates = make([]string, 0)
+		stringPredicates := make([]string, 0)
 		for _, predicate := range predicates {
 			stringPredicates = append(stringPredicates, string(predicate))
 		}
@@ -295,7 +296,13 @@ type SAMLProvider struct {
 	ServiceProviderMetadataURI   serde.URL `json:"sp_metadata_uri" gorm:"-"`
 	ServiceProviderACSURI        serde.URL `json:"sp_acs_uri" gorm:"-"`
 
+	SSOProviderID null.Int32 `json:"sso_provider_id"`
+
 	Serial
+}
+
+func (SAMLProvider) TableName() string {
+	return "saml_providers"
 }
 
 func (s SAMLProvider) AuditData() AuditData {
@@ -361,7 +368,7 @@ func (s Roles) IsString(column string) bool {
 }
 
 func (s Roles) GetFilterableColumns() []string {
-	var columns = make([]string, 0)
+	columns := make([]string, 0)
 	for column := range s.ValidFilters() {
 		columns = append(columns, column)
 	}
@@ -372,7 +379,7 @@ func (s Roles) GetValidFilterPredicatesAsStrings(column string) ([]string, error
 	if predicates, validColumn := s.ValidFilters()[column]; !validColumn {
 		return []string{}, fmt.Errorf("the specified column cannot be filtered")
 	} else {
-		var stringPredicates = make([]string, 0)
+		stringPredicates := make([]string, 0)
 		for _, predicate := range predicates {
 			stringPredicates = append(stringPredicates, string(predicate))
 		}
@@ -463,7 +470,9 @@ type User struct {
 	IsDisabled     bool          `json:"is_disabled"`
 	// EULA Acceptance does not pertain to Bloodhound Community Edition; this flag is used for Bloodhound Enterprise users.
 	// This value is automatically set to true for Bloodhound Community Edition in the patchEULAAcceptance and CreateUser functions.
-	EULAAccepted bool `json:"eula_accepted"`
+	EULAAccepted  bool         `json:"eula_accepted"`
+	SSOProvider   *SSOProvider `json:"-" `
+	SSOProviderID null.Int32   `json:"sso_provider_id,omitempty"`
 
 	Unique
 }
@@ -477,6 +486,7 @@ func (s *User) AuditData() AuditData {
 		"email_address":    s.EmailAddress.ValueOrZero(),
 		"roles":            s.Roles.IDs(),
 		"saml_provider_id": s.SAMLProviderID.ValueOrZero(),
+		"sso_provider_id":  s.SSOProviderID.ValueOrZero(),
 		"is_disabled":      s.IsDisabled,
 		"eula_accepted":    s.EULAAccepted,
 	}
@@ -531,7 +541,7 @@ func (s Users) IsString(column string) bool {
 }
 
 func (s Users) GetFilterableColumns() []string {
-	var columns = make([]string, 0)
+	columns := make([]string, 0)
 	for column := range s.ValidFilters() {
 		columns = append(columns, column)
 	}
@@ -542,7 +552,7 @@ func (s Users) GetValidFilterPredicatesAsStrings(column string) ([]string, error
 	if predicates, validColumn := s.ValidFilters()[column]; !validColumn {
 		return []string{}, fmt.Errorf("the specified column cannot be filtered")
 	} else {
-		var stringPredicates = make([]string, 0)
+		stringPredicates := make([]string, 0)
 		for _, predicate := range predicates {
 			stringPredicates = append(stringPredicates, string(predicate))
 		}
@@ -553,6 +563,7 @@ func (s Users) GetValidFilterPredicatesAsStrings(column string) ([]string, error
 func UserSessionAssociations() []string {
 	return []string{
 		"User.SAMLProvider",
+		"User.SSOProvider",
 		"User.AuthSecret",
 		"User.AuthTokens",
 		"User.Roles.Permissions",
@@ -564,6 +575,26 @@ type SessionAuthProvider int
 const (
 	SessionAuthProviderSecret SessionAuthProvider = 0
 	SessionAuthProviderSAML   SessionAuthProvider = 1
+	SessionAuthProviderOIDC   SessionAuthProvider = 2
+)
+
+func (s SessionAuthProvider) String() string {
+	switch s {
+	case SessionAuthProviderSecret:
+		return "Secret"
+	case SessionAuthProviderSAML:
+		return "SAML"
+	case SessionAuthProviderOIDC:
+		return "OIDC"
+	default:
+		return "Unknown"
+	}
+}
+
+type SessionFlagKey string
+
+const (
+	SessionFlagFedEULAAccepted SessionFlagKey = "fed_eula_accepted" // INFO: The FedEULA is only applicable to select enterprise installations
 )
 
 type UserSession struct {
@@ -572,6 +603,7 @@ type UserSession struct {
 	AuthProviderType SessionAuthProvider
 	AuthProviderID   int32
 	ExpiresAt        time.Time
+	Flags            types.JSONBBoolObject `json:"flags"`
 
 	BigSerial
 }
@@ -579,4 +611,9 @@ type UserSession struct {
 // Expired returns true if the user session has expired, false otherwise
 func (s UserSession) Expired() bool {
 	return s.ExpiresAt.Before(time.Now().UTC())
+}
+
+// corresponding set function is cmd/api/src/database/auth.go:SetUserSessionFlag()
+func (s UserSession) GetFlag(key SessionFlagKey) bool {
+	return s.Flags[string(key)]
 }

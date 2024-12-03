@@ -26,10 +26,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gofrs/uuid"
-	"github.com/specterops/bloodhound/src/auth"
-	"github.com/specterops/bloodhound/src/model"
+	"github.com/specterops/bloodhound/src/database/types/null"
 	"gorm.io/gorm"
+
+	"github.com/gofrs/uuid"
+	"github.com/specterops/bloodhound/errors"
+	"github.com/specterops/bloodhound/src/auth"
+	"github.com/specterops/bloodhound/src/database/types"
+	"github.com/specterops/bloodhound/src/model"
 )
 
 // NewClientAuthToken creates a new Client AuthToken row using the details provided
@@ -101,7 +105,7 @@ func (s *BloodhoundDB) GetAllRoles(ctx context.Context, order string, filter mod
 		cursor = cursor.Order(order)
 	}
 	if filter.SQLString != "" {
-		cursor = cursor.Where(filter.SQLString, filter.Params)
+		cursor = cursor.Where(filter.SQLString, filter.Params...)
 	}
 
 	return roles, CheckError(cursor.Find(&roles))
@@ -142,7 +146,7 @@ func (s *BloodhoundDB) GetAllPermissions(ctx context.Context, order string, filt
 	}
 
 	if filter.SQLString != "" {
-		cursor = cursor.Where(filter.SQLString, filter.Params)
+		cursor = cursor.Where(filter.SQLString, filter.Params...)
 	}
 
 	return permissions, CheckError(cursor.Find(&permissions))
@@ -232,7 +236,7 @@ func (s *BloodhoundDB) GetInstallation(ctx context.Context) (model.Installation,
 // SELECT CASE WHEN EXISTS (SELECT 1 FROM installations) THEN true ELSE false END
 func (s *BloodhoundDB) HasInstallation(ctx context.Context) (bool, error) {
 	if _, err := s.GetInstallation(ctx); err != nil {
-		if err == ErrNotFound {
+		if errors.Is(err, ErrNotFound) {
 			return false, nil
 		}
 
@@ -296,7 +300,7 @@ func (s *BloodhoundDB) GetAllUsers(ctx context.Context, order string, filter mod
 	}
 
 	if filter.SQLString != "" {
-		result = cursor.Where(filter.SQLString, filter.Params).Find(&users)
+		result = cursor.Where(filter.SQLString, filter.Params...).Find(&users)
 	} else {
 		result = cursor.Find(&users)
 	}
@@ -390,7 +394,7 @@ func (s *BloodhoundDB) GetAllAuthTokens(ctx context.Context, order string, filte
 	}
 
 	if filter.SQLString != "" {
-		cursor = cursor.Where(filter.SQLString, filter.Params)
+		cursor = cursor.Where(filter.SQLString, filter.Params...)
 	}
 
 	return tokens, CheckError(cursor.Find(&tokens))
@@ -407,14 +411,7 @@ func (s *BloodhoundDB) GetUserToken(ctx context.Context, userId, tokenId uuid.UU
 // DeleteAuthToken deletes the provided AuthToken row
 // DELETE FROM auth_tokens WHERE id = ...
 func (s *BloodhoundDB) DeleteAuthToken(ctx context.Context, authToken model.AuthToken) error {
-	auditEntry := model.AuditEntry{
-		Action: model.AuditLogActionDeleteAuthToken,
-		Model:  &authToken,
-	}
-
-	return s.AuditableTransaction(ctx, auditEntry, func(tx *gorm.DB) error {
-		return CheckError(tx.WithContext(ctx).Where("id = ?", authToken.ID).Delete(&authToken))
-	})
+	return CheckError(s.db.WithContext(ctx).Where("id = ?", authToken.ID).Delete(&authToken))
 }
 
 // CreateAuthSecret creates a new AuthSecret row
@@ -468,7 +465,8 @@ func (s *BloodhoundDB) DeleteAuthSecret(ctx context.Context, authSecret model.Au
 	})
 }
 
-// CreateSAMLProvider creates a new saml_providers row using the data in the input struct
+// CreateSAMLIdentityProvider creates a new saml_providers row using the data in the input struct
+// This also creates the corresponding sso_provider entry
 // INSERT INTO saml_identity_providers (...) VALUES (...)
 func (s *BloodhoundDB) CreateSAMLIdentityProvider(ctx context.Context, samlProvider model.SAMLProvider) (model.SAMLProvider, error) {
 	auditEntry := model.AuditEntry{
@@ -477,7 +475,15 @@ func (s *BloodhoundDB) CreateSAMLIdentityProvider(ctx context.Context, samlProvi
 	}
 
 	err := s.AuditableTransaction(ctx, auditEntry, func(tx *gorm.DB) error {
-		return CheckError(tx.WithContext(ctx).Create(&samlProvider))
+		bhdb := NewBloodhoundDB(tx, s.idResolver)
+
+		// Create the associated SSO provider
+		if ssoProvider, err := bhdb.CreateSSOProvider(ctx, samlProvider.Name, model.SessionAuthProviderSAML); err != nil {
+			return err
+		} else {
+			samlProvider.SSOProviderID = null.Int32From(ssoProvider.ID)
+			return CheckError(tx.WithContext(ctx).Create(&samlProvider))
+		}
 	})
 
 	return samlProvider, err
@@ -529,17 +535,6 @@ func (s *BloodhoundDB) GetSAMLProvider(ctx context.Context, id int32) (model.SAM
 	return samlProvider, CheckError(result)
 }
 
-func (s *BloodhoundDB) DeleteSAMLProvider(ctx context.Context, provider model.SAMLProvider) error {
-	auditEntry := model.AuditEntry{
-		Action: model.AuditLogActionDeleteSAMLIdentityProvider,
-		Model:  &provider, // Pointer is required to ensure success log contains updated fields after transaction
-	}
-
-	return s.AuditableTransaction(ctx, auditEntry, func(tx *gorm.DB) error {
-		return CheckError(tx.WithContext(ctx).Delete(&provider))
-	})
-}
-
 // GetSAMLProviderUsers returns all users that are bound to the SAML provider ID provided
 // SELECT * FROM users WHERE saml_provider_id = ..
 func (s *BloodhoundDB) GetSAMLProviderUsers(ctx context.Context, id int32) (model.Users, error) {
@@ -562,6 +557,29 @@ func (s *BloodhoundDB) CreateUserSession(ctx context.Context, userSession model.
 // UPDATE user_sessions SET expires_at = <now> WHERE user_id = ...
 func (s *BloodhoundDB) EndUserSession(ctx context.Context, userSession model.UserSession) {
 	s.db.Model(&userSession).WithContext(ctx).Update("expires_at", gorm.Expr("NOW()"))
+}
+
+// corresponding retrival function is model.UserSession.GetFlag()
+func (s *BloodhoundDB) SetUserSessionFlag(ctx context.Context, userSession *model.UserSession, key model.SessionFlagKey, state bool) error {
+	if userSession.ID == 0 {
+		return errors.Error("invalid session - missing session id")
+	}
+
+	auditEntry := model.AuditEntry{}
+	doAudit := false
+	// only audit if the new state is true, meaning the EULA is currently being accepted
+	// INFO: The FedEULA is only applicable to select enterprise installations
+	if key == model.SessionFlagFedEULAAccepted && state {
+		doAudit = true
+		auditEntry.Action = model.AuditLogActionAcceptFedEULA
+	}
+	return s.MaybeAuditableTransaction(ctx, !doAudit, auditEntry, func(tx *gorm.DB) error {
+		if userSession.Flags == nil {
+			userSession.Flags = types.JSONBBoolObject{}
+		}
+		userSession.Flags[string(key)] = state
+		return CheckError(tx.Model(&userSession).WithContext(ctx).Update("flags", userSession.Flags))
+	})
 }
 
 func (s *BloodhoundDB) LookupActiveSessionsByUser(ctx context.Context, user model.User) ([]model.UserSession, error) {

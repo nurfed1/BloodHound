@@ -33,6 +33,7 @@ import (
 	"github.com/specterops/bloodhound/src/auth"
 	"github.com/specterops/bloodhound/src/model"
 	"github.com/specterops/bloodhound/src/model/appcfg"
+	"github.com/specterops/bloodhound/src/test/integration/utils"
 	"github.com/specterops/bloodhound/src/test/lab/fixtures"
 	"github.com/stretchr/testify/require"
 )
@@ -59,10 +60,20 @@ func testRoleAccess(t *testing.T, roleName string) {
 	role, ok := auth.Roles()[roleName]
 	require.Truef(t, ok, "invalid role name")
 
+	customCfg, err := utils.LoadIntegrationTestConfig()
+	require.Nil(t, err)
+
+	// In order to role test access, enable_cypher_mutations must be true
+	customCfg.EnableCypherMutations = true
+
 	harness := lab.NewHarness()
-	adminApiClientFixture := fixtures.NewAdminApiClientFixture(fixtures.NewApiFixture())
+	customCfgFixture := fixtures.NewCustomConfigFixture(customCfg)
+	lab.Pack(harness, customCfgFixture)
+	customApiFixture := fixtures.NewCustomApiFixture(customCfgFixture)
+	lab.Pack(harness, customApiFixture)
+	adminApiClientFixture := fixtures.NewAdminApiClientFixture(customCfgFixture, customApiFixture)
 	lab.Pack(harness, adminApiClientFixture)
-	userClientFixture := fixtures.NewUserApiClientFixture(adminApiClientFixture, role.Name)
+	userClientFixture := fixtures.NewUserApiClientFixture(fixtures.ConfigFixture, adminApiClientFixture, role.Name)
 	lab.Pack(harness, userClientFixture)
 
 	lab.NewSpec(t, harness).Run(
@@ -162,12 +173,36 @@ func testRoleAccess(t *testing.T, roleName string) {
 			}
 		}),
 
+		lab.TestCase(fmt.Sprintf("%s be able to access GraphDBMutate endpoints", testCondition(role, auth.Permissions().GraphDBMutate)), func(assert *require.Assertions, harness *lab.Harness) {
+			userClient, ok := lab.Unpack(harness, userClientFixture)
+			assert.True(ok)
+
+			_, err := userClient.CypherQuery(v2.CypherQueryPayload{Query: "match (w) where w.name = 'voldemort' remove w.name return w"})
+			if role.Permissions.Has(auth.Permissions().GraphDBMutate) {
+				assert.Nil(err)
+			} else {
+				requireForbidden(assert, err)
+			}
+		}),
+
 		lab.TestCase(fmt.Sprintf("%s be able to access GraphDBWrite endpoints", testCondition(role, auth.Permissions().GraphDBWrite)), func(assert *require.Assertions, harness *lab.Harness) {
 			userClient, ok := lab.Unpack(harness, userClientFixture)
 			assert.True(ok)
 
-			_, err := userClient.CreateFileUploadTask()
+			_, err := userClient.CreateAssetGroup(v2.CreateAssetGroupRequest{Name: "test", Tag: "test"})
 			if role.Permissions.Has(auth.Permissions().GraphDBWrite) {
+				assert.Nil(err)
+			} else {
+				requireForbidden(assert, err)
+			}
+		}),
+
+		lab.TestCase(fmt.Sprintf("%s be able to access GraphDBIngest endpoints", testCondition(role, auth.Permissions().GraphDBIngest)), func(assert *require.Assertions, harness *lab.Harness) {
+			userClient, ok := lab.Unpack(harness, userClientFixture)
+			assert.True(ok)
+
+			_, err := userClient.CreateFileUploadTask()
+			if role.Permissions.Has(auth.Permissions().GraphDBIngest) {
 				assert.Nil(err)
 			} else {
 				requireForbidden(assert, err)

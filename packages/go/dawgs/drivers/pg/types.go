@@ -18,13 +18,14 @@ package pg
 
 import (
 	"fmt"
+
 	"github.com/specterops/bloodhound/dawgs/graph"
 )
 
 type edgeComposite struct {
-	ID         int32
-	StartID    int32
-	EndID      int32
+	ID         int64
+	StartID    int64
+	EndID      int64
 	KindID     int16
 	Properties map[string]any
 }
@@ -113,7 +114,7 @@ func (s *edgeComposite) ToRelationship(kindMapper KindMapper, relationship *grap
 }
 
 type nodeComposite struct {
-	ID         int32
+	ID         int64
 	KindIDs    []int16
 	Properties map[string]any
 }
@@ -163,6 +164,50 @@ func (s *pathComposite) TryMap(compositeMap map[string]any) bool {
 }
 
 func (s *pathComposite) FromMap(compositeMap map[string]any) error {
+	if rawNodes, hasNodes := compositeMap["nodes"]; hasNodes {
+		if typedRawNodes, typeOK := rawNodes.([]any); !typeOK {
+			return fmt.Errorf("")
+		} else {
+			for _, rawNode := range typedRawNodes {
+				switch typedNode := rawNode.(type) {
+				case map[string]any:
+					var node nodeComposite
+
+					if err := node.FromMap(typedNode); err != nil {
+						return err
+					}
+
+					s.Nodes = append(s.Nodes, node)
+
+				default:
+					return fmt.Errorf("unexpected type for raw node: %T", rawNode)
+				}
+			}
+		}
+	}
+
+	if rawEdges, hasEdges := compositeMap["edges"]; hasEdges {
+		if typedRawEdges, typeOK := rawEdges.([]any); !typeOK {
+			return fmt.Errorf("")
+		} else {
+			for _, rawEdge := range typedRawEdges {
+				switch typedNode := rawEdge.(type) {
+				case map[string]any:
+					var edge edgeComposite
+
+					if err := edge.FromMap(typedNode); err != nil {
+						return err
+					}
+
+					s.Edges = append(s.Edges, edge)
+
+				default:
+					return fmt.Errorf("unexpected type for raw edge: %T", rawEdge)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

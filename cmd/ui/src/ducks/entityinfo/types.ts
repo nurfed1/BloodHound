@@ -33,7 +33,7 @@ export interface CertTemplateInfo extends EntityInfo {
         applicationpolicies: string;
         authorizedsignatures: number;
         certificateapplicationpolicy: string[];
-        ekus: string[];
+        EffectiveEKUs: string[];
         enrolleesuppliessubject: boolean;
         issuancepolicies: string;
         oid: string;
@@ -140,6 +140,7 @@ export interface EnterpriseCAInfo extends EntityInfo {
         isuserspecifiessanenabledcollected: boolean;
         roleseparationenabled?: boolean;
         roleseparationenabledcollected: boolean;
+        unresolvedpublishedtemplates: string[];
         description?: string;
     };
     controllables: number;

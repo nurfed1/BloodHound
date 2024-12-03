@@ -45,7 +45,6 @@ import (
 	"github.com/specterops/bloodhound/src/model"
 	"github.com/specterops/bloodhound/src/model/appcfg"
 	"github.com/specterops/bloodhound/src/serde"
-	"github.com/specterops/bloodhound/src/utils"
 	"github.com/specterops/bloodhound/src/utils/validation"
 )
 
@@ -61,16 +60,42 @@ type ManagementResource struct {
 	secretDigester             crypto.SecretDigester
 	db                         database.Database
 	QueryParameterFilterParser model.QueryParameterFilterParser
-	authorizer                 auth.Authorizer
+	authorizer                 auth.Authorizer   // Used for Permissions
+	authenticator              api.Authenticator // Used for secrets
 }
 
-func NewManagementResource(authConfig config.Configuration, db database.Database, authorizer auth.Authorizer) ManagementResource {
+func NewManagementResource(authConfig config.Configuration, db database.Database, authorizer auth.Authorizer, authenticator api.Authenticator) ManagementResource {
 	return ManagementResource{
 		config:                     authConfig,
 		secretDigester:             authConfig.Crypto.Argon2.NewDigester(),
 		db:                         db,
 		QueryParameterFilterParser: model.NewQueryParameterFilterParser(),
 		authorizer:                 authorizer,
+		authenticator:              authenticator,
+	}
+}
+
+func (s ManagementResource) SAMLLoginRedirect(response http.ResponseWriter, request *http.Request) {
+	ssoProviderSlug := mux.Vars(request)[api.URIPathVariableServiceProviderName]
+
+	if ssoProvider, err := s.db.GetSSOProviderBySlug(request.Context(), ssoProviderSlug); err != nil {
+		api.HandleDatabaseError(request, response, err)
+	} else {
+		bheCtx := ctx.FromRequest(request)
+		redirectURL := api.URLJoinPath(*bheCtx.Host, fmt.Sprintf("/api/v2/sso/%s/login", ssoProvider.Slug))
+		http.Redirect(response, request, redirectURL.String(), http.StatusFound)
+	}
+}
+
+func (s ManagementResource) SAMLCallbackRedirect(response http.ResponseWriter, request *http.Request) {
+	ssoProviderSlug := mux.Vars(request)[api.URIPathVariableServiceProviderName]
+
+	if ssoProvider, err := s.db.GetSSOProviderBySlug(request.Context(), ssoProviderSlug); err != nil {
+		api.HandleDatabaseError(request, response, err)
+	} else {
+		bheCtx := ctx.FromRequest(request)
+		redirectURL := api.URLJoinPath(*bheCtx.Host, fmt.Sprintf("/api/v2/sso/%s/callback", ssoProvider.Slug))
+		http.Redirect(response, request, redirectURL.String(), http.StatusTemporaryRedirect)
 	}
 }
 
@@ -114,6 +139,9 @@ func (s ManagementResource) GetSAMLProvider(response http.ResponseWriter, reques
 	} else if provider, err := s.db.GetSAMLProvider(request.Context(), int32(providerID)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
+		// Format the service provider uri's in response
+		provider = bhsaml.FormatSAMLProviderURLs(request.Context(), provider)[0]
+
 		api.WriteBasicResponse(request.Context(), provider, http.StatusOK, response)
 	}
 }
@@ -160,19 +188,6 @@ func (s ManagementResource) CreateSAMLProviderMultipart(response http.ResponseWr
 	}
 }
 
-func (s ManagementResource) disassociateUsersFromSAMLProvider(request *http.Request, providerUsers model.Users) error {
-	for _, user := range providerUsers {
-		user.SAMLProvider = nil
-		user.SAMLProviderID = null.NewInt32(0, false)
-
-		if err := s.db.UpdateUser(request.Context(), user); err != nil {
-			return api.FormatDatabaseError(err)
-		}
-	}
-
-	return nil
-}
-
 func (s ManagementResource) DeleteSAMLProvider(response http.ResponseWriter, request *http.Request) {
 	var (
 		identityProvider model.SAMLProvider
@@ -188,9 +203,7 @@ func (s ManagementResource) DeleteSAMLProvider(response http.ResponseWriter, req
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusConflict, "user may not delete their own SAML auth provider", request), response)
 	} else if providerUsers, err := s.db.GetSAMLProviderUsers(request.Context(), identityProvider.ID); err != nil {
 		api.HandleDatabaseError(request, response, err)
-	} else if err := s.disassociateUsersFromSAMLProvider(request, providerUsers); err != nil {
-		api.HandleDatabaseError(request, response, err)
-	} else if err := s.db.DeleteSAMLProvider(request.Context(), identityProvider); err != nil {
+	} else if err := s.db.DeleteSSOProvider(request.Context(), int(identityProvider.SSOProviderID.Int32)); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else {
 		api.WriteBasicResponse(request.Context(), v2.DeleteSAMLProviderResponse{
@@ -441,17 +454,15 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 
 		if createUserRequest.Secret != "" {
 			if errs := validation.Validate(createUserRequest.SetUserSecretRequest); errs != nil {
-				msg := strings.Join(utils.Errors(errs).AsStringSlice(), ", ")
-				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, msg, request), response)
+				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, errs.Error(), request), response)
 				return
 			} else if secretDigest, err := s.secretDigester.Digest(createUserRequest.Secret); err != nil {
 				log.Errorf("Error while attempting to digest secret for user: %v", err)
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 				return
-			} else if passwordExpiration, err := appcfg.GetPasswordExpiration(request.Context(), s.db); err != nil {
-				log.Errorf("Error while attempting to fetch password expiration window: %v", err)
-				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 			} else {
+				passwordExpiration := appcfg.GetPasswordExpiration(request.Context(), s.db)
+
 				userTemplate.AuthSecret = &model.AuthSecret{
 					Digest:       secretDigest.String(),
 					DigestMethod: s.secretDigester.Method(),
@@ -467,11 +478,29 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 		if createUserRequest.SAMLProviderID != "" {
 			if samlProviderID, err := serde.ParseInt32(createUserRequest.SAMLProviderID); err != nil {
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("SAML Provider ID must be a number: %v", err.Error()), request), response)
+				return
 			} else if samlProvider, err := s.db.GetSAMLProvider(request.Context(), samlProviderID); err != nil {
 				log.Errorf("Error while attempting to fetch SAML provider %d: %v", createUserRequest.SAMLProviderID, err)
 				api.HandleDatabaseError(request, response, err)
+				return
 			} else {
 				userTemplate.SAMLProviderID = null.Int32From(samlProvider.ID)
+				userTemplate.SSOProviderID = samlProvider.SSOProviderID
+			}
+		} else if createUserRequest.SSOProviderID.Valid {
+			if ssoProvider, err := s.db.GetSSOProviderById(request.Context(), createUserRequest.SSOProviderID.Int32); err != nil {
+				api.HandleDatabaseError(request, response, err)
+				return
+			} else {
+				userTemplate.SSOProviderID = createUserRequest.SSOProviderID
+				if ssoProvider.Type == model.SessionAuthProviderSAML {
+					if ssoProvider.SAMLProvider != nil {
+						userTemplate.SAMLProviderID = null.Int32From(ssoProvider.SAMLProvider.ID)
+					}
+				} else {
+					userTemplate.SAMLProvider = nil
+					userTemplate.SAMLProviderID = null.NewInt32(0, false)
+				}
 			}
 		}
 
@@ -484,20 +513,10 @@ func (s ManagementResource) CreateUser(response http.ResponseWriter, request *ht
 	}
 }
 
-func (s ManagementResource) updateUser(response http.ResponseWriter, request *http.Request, user model.User) {
-	if err := s.db.UpdateUser(request.Context(), user); err != nil {
-		api.HandleDatabaseError(request, response, err)
-	} else {
-		response.WriteHeader(http.StatusOK)
-	}
-}
-
 func (s ManagementResource) ensureUserHasNoAuthSecret(ctx context.Context, user model.User) error {
 	if user.AuthSecret != nil {
 		if err := s.db.DeleteAuthSecret(ctx, *user.AuthSecret); err != nil {
 			return api.FormatDatabaseError(err)
-		} else {
-			return nil
 		}
 	}
 
@@ -509,7 +528,7 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 		updateUserRequest v2.UpdateUserRequest
 		pathVars          = mux.Vars(request)
 		rawUserID         = pathVars[api.URIPathVariableUserID]
-		context           = *ctx.FromRequest(request)
+		authCtx           = *ctx.FromRequest(request)
 	)
 
 	if userID, err := uuid.FromString(rawUserID); err != nil {
@@ -531,7 +550,7 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 		user.IsDisabled = updateUserRequest.IsDisabled
 
 		if user.IsDisabled {
-			if loggedInUser, _ := auth.GetUserFromAuthCtx(context.AuthCtx); user.ID == loggedInUser.ID {
+			if loggedInUser, _ := auth.GetUserFromAuthCtx(authCtx.AuthCtx); user.ID == loggedInUser.ID {
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseUserSelfDisable, request), response)
 				return
 			} else if userSessions, err := s.db.LookupActiveSessionsByUser(request.Context(), user); err != nil {
@@ -548,24 +567,50 @@ func (s ManagementResource) UpdateUser(response http.ResponseWriter, request *ht
 			// We're setting a SAML provider. If the user has an associated secret the secret will be removed.
 			if samlProviderID, err := serde.ParseInt32(updateUserRequest.SAMLProviderID); err != nil {
 				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, fmt.Sprintf("SAML Provider ID must be a number: %v", err.Error()), request), response)
+				return
 			} else if err := s.ensureUserHasNoAuthSecret(request.Context(), user); err != nil {
 				api.HandleDatabaseError(request, response, err)
+				return
 			} else if provider, err := s.db.GetSAMLProvider(request.Context(), samlProviderID); err != nil {
 				api.HandleDatabaseError(request, response, err)
+				return
 			} else {
 				// Ensure that the AuthSecret reference is nil and that the SAML provider is set
-				user.AuthSecret = nil
-				user.SAMLProvider = &provider
+				user.AuthSecret = nil // Required or the below updateUser will re-add the authSecret
 				user.SAMLProviderID = null.Int32From(samlProviderID)
-
-				s.updateUser(response, request, user)
+				user.SSOProviderID = provider.SSOProviderID
+			}
+		} else if updateUserRequest.SSOProviderID.Valid {
+			if err := s.ensureUserHasNoAuthSecret(request.Context(), user); err != nil {
+				api.HandleDatabaseError(request, response, err)
+				return
+			} else if ssoProvider, err := s.db.GetSSOProviderById(request.Context(), updateUserRequest.SSOProviderID.Int32); err != nil {
+				api.HandleDatabaseError(request, response, err)
+				return
+			} else {
+				user.AuthSecret = nil // Required or the below updateUser will re-add the authSecret
+				user.SSOProviderID = updateUserRequest.SSOProviderID
+				if ssoProvider.Type == model.SessionAuthProviderSAML {
+					if ssoProvider.SAMLProvider != nil {
+						user.SAMLProviderID = null.Int32From(ssoProvider.SAMLProvider.ID)
+					}
+				} else {
+					user.SAMLProvider = nil
+					user.SAMLProviderID = null.NewInt32(0, false)
+				}
 			}
 		} else {
-			// Default SAMLProviderID to null if the update request contains no SAMLProviderID
-			user.SAMLProviderID = null.NewInt32(0, false)
+			// Default SAMLProviderID and SSOProviderID to null if the update request contains no SAMLProviderID and SSOProviderID
 			user.SAMLProvider = nil
+			user.SSOProvider = nil
+			user.SAMLProviderID = null.NewInt32(0, false)
+			user.SSOProviderID = null.NewInt32(0, false)
+		}
 
-			s.updateUser(response, request, user)
+		if err := s.db.UpdateUser(request.Context(), user); err != nil {
+			api.HandleDatabaseError(request, response, err)
+		} else {
+			response.WriteHeader(http.StatusOK)
 		}
 	}
 }
@@ -634,39 +679,50 @@ func (s ManagementResource) PutUserAuthSecret(response http.ResponseWriter, requ
 		setUserSecretRequest v2.SetUserSecretRequest
 		pathVars             = mux.Vars(request)
 		rawUserID            = pathVars[api.URIPathVariableUserID]
+		bhCtx                = ctx.FromRequest(request)
 	)
 
-	if userID, err := uuid.FromString(rawUserID); err != nil {
+	if loggedInUser, found := auth.GetUserFromAuthCtx(bhCtx.AuthCtx); !found {
+		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "No associated user found", request), response)
+	} else if targetUserID, err := uuid.FromString(rawUserID); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
 	} else if err := api.ReadJSONRequestPayloadLimited(&setUserSecretRequest, request); err != nil {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, err.Error(), request), response)
 	} else if errs := validation.Validate(setUserSecretRequest); errs != nil {
-		msg := strings.Join(utils.Errors(errs).AsStringSlice(), ", ")
-		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, msg, request), response)
-	} else if targetUser, err := s.db.GetUser(request.Context(), userID); err != nil {
+		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, errs.Error(), request), response)
+	} else if targetUser, err := s.db.GetUser(request.Context(), targetUserID); err != nil {
 		api.HandleDatabaseError(request, response, err)
 	} else if targetUser.SAMLProviderID.Valid {
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, "Invalid operation, user is SSO", request), response)
-	} else if passwordExpiration, err := appcfg.GetPasswordExpiration(request.Context(), s.db); err != nil {
-		log.Errorf("Error while attempting to fetch password expiration window: %v", err)
-		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseCodeInternalServerError, request), response)
-	} else if secretDigest, err := s.secretDigester.Digest(setUserSecretRequest.Secret); err != nil {
-		log.Errorf("Error while attempting to digest secret for user: %v", err)
-		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 	} else {
-		authSecret.UserID = targetUser.ID
-		authSecret.Digest = secretDigest.String()
-		authSecret.DigestMethod = s.secretDigester.Method()
-		authSecret.ExpiresAt = time.Now().Add(passwordExpiration).UTC()
-
-		if setUserSecretRequest.NeedsPasswordReset {
-			authSecret.ExpiresAt = time.Time{}
+		if loggedInUser.ID == targetUserID {
+			if targetUser.AuthSecret == nil {
+				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrNoUserSecret.Error(), request), response)
+			} else if err := s.authenticator.ValidateSecret(request.Context(), setUserSecretRequest.CurrentSecret, *targetUser.AuthSecret); err != nil {
+				api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusForbidden, "Invalid current password", request), response)
+				return
+			}
 		}
 
-		if err := s.setUserSecret(request.Context(), targetUser, authSecret); err != nil {
-			api.HandleDatabaseError(request, response, err)
+		passwordExpiration := appcfg.GetPasswordExpiration(request.Context(), s.db)
+		if secretDigest, err := s.secretDigester.Digest(setUserSecretRequest.Secret); err != nil {
+			log.Errorf("Error while attempting to digest secret for user: %v", err)
+			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
 		} else {
-			response.WriteHeader(http.StatusOK)
+			authSecret.UserID = targetUser.ID
+			authSecret.Digest = secretDigest.String()
+			authSecret.DigestMethod = s.secretDigester.Method()
+			authSecret.ExpiresAt = time.Now().Add(passwordExpiration).UTC()
+
+			if setUserSecretRequest.NeedsPasswordReset {
+				authSecret.ExpiresAt = time.Time{}
+			}
+
+			if err := s.setUserSecret(request.Context(), targetUser, authSecret); err != nil {
+				api.HandleDatabaseError(request, response, err)
+			} else {
+				response.WriteHeader(http.StatusOK)
+			}
 		}
 	}
 }
@@ -813,9 +869,10 @@ func verifyUserID(createUserTokenRequest *v2.CreateUserToken, user model.User, b
 
 func (s ManagementResource) DeleteAuthToken(response http.ResponseWriter, request *http.Request) {
 	var (
-		pathVars   = mux.Vars(request)
-		rawTokenID = pathVars[api.URIPathVariableTokenID]
-		bhCtx      = ctx.FromRequest(request)
+		pathVars      = mux.Vars(request)
+		rawTokenID    = pathVars[api.URIPathVariableTokenID]
+		bhCtx         = ctx.FromRequest(request)
+		auditLogEntry model.AuditEntry
 	)
 
 	if user, isUser := auth.GetUserFromAuthCtx(bhCtx.AuthCtx); !isUser {
@@ -824,13 +881,36 @@ func (s ManagementResource) DeleteAuthToken(response http.ResponseWriter, reques
 		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusBadRequest, api.ErrorResponseDetailsIDMalformed, request), response)
 	} else if token, err := s.db.GetAuthToken(request.Context(), tokenID); err != nil {
 		api.HandleDatabaseError(request, response, err)
-	} else if token.UserID.Valid && token.UserID.UUID != user.ID && !s.authorizer.AllowsPermission(bhCtx.AuthCtx, auth.Permissions().AuthManageUsers) {
-		log.Errorf("Bad user ID: %s != %s", token.UserID.UUID.String(), user.ID.String())
-		api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusNotFound, api.ErrorResponseDetailsResourceNotFound, request), response)
-	} else if err := s.db.DeleteAuthToken(request.Context(), token); err != nil {
-		api.HandleDatabaseError(request, response, err)
 	} else {
-		response.WriteHeader(http.StatusOK)
+		// Log Intent to delete auth token for target user
+		if auditLogEntry, err = model.NewAuditEntry(model.AuditLogActionDeleteAuthToken, model.AuditLogStatusIntent, model.AuditData{"target_user_id": token.UserID.UUID, "id": token.ID.String()}); err != nil {
+			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusInternalServerError, api.ErrorResponseDetailsInternalServerError, request), response)
+			return
+		} else if err = s.db.AppendAuditLog(request.Context(), auditLogEntry); err != nil {
+			api.HandleDatabaseError(request, response, err)
+			return
+		} else if token.UserID.Valid && token.UserID.UUID != user.ID && !s.authorizer.AllowsPermission(bhCtx.AuthCtx, auth.Permissions().AuthManageUsers) {
+			auditLogEntry.Status = model.AuditLogStatusFailure
+			api.WriteErrorResponse(request.Context(), api.BuildErrorResponse(http.StatusForbidden, api.ErrorResponseDetailsForbidden, request), response)
+		} else if err := s.db.DeleteAuthToken(request.Context(), token); err != nil {
+			auditLogEntry.Status = model.AuditLogStatusFailure
+			api.HandleDatabaseError(request, response, err)
+		} else {
+			auditLogEntry.Status = model.AuditLogStatusSuccess
+			response.WriteHeader(http.StatusOK)
+		}
+
+		// Audit Log Result to delete auth token for target user
+		if err := s.db.AppendAuditLog(request.Context(), auditLogEntry); err != nil {
+			// We want to keep err scoped because response trumps this error
+			if errors.Is(err, database.ErrNotFound) {
+				log.Errorf("resource not found: %v", err)
+			} else if errors.Is(err, context.DeadlineExceeded) {
+				log.Errorf("context deadline exceeded: %v", err)
+			} else {
+				log.Errorf("unexpected database error: %v", err)
+			}
+		}
 	}
 }
 

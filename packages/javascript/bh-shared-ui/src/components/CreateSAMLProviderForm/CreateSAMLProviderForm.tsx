@@ -14,10 +14,10 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+import { Button } from '@bloodhoundenterprise/doodleui';
 import {
     Alert,
     Box,
-    Button,
     DialogActions,
     DialogContent,
     FormHelperText,
@@ -26,7 +26,7 @@ import {
     Typography,
     useTheme,
 } from '@mui/material';
-import { useState } from 'react';
+import { useState, FC } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 
 export interface CreateSAMLProviderFormInputs {
@@ -34,7 +34,7 @@ export interface CreateSAMLProviderFormInputs {
     metadata: FileList;
 }
 
-const CreateSAMLProviderForm: React.FC<{
+const CreateSAMLProviderForm: FC<{
     error?: string;
     onClose: () => void;
     onSubmit: (data: CreateSAMLProviderFormInputs) => void;
@@ -100,17 +100,12 @@ const CreateSAMLProviderForm: React.FC<{
                                 required: 'Metadata is required',
                             }}
                             render={({ field }) => (
-                                <Box p={1} borderRadius={4} bgcolor={theme.palette.grey[200]}>
+                                <Box p={1} borderRadius={4} bgcolor={theme.palette.neutral.tertiary}>
                                     <Box display='flex' flexDirection='row' alignItems='center'>
-                                        <Button
-                                            color='inherit'
-                                            component='label'
-                                            variant='contained'
-                                            disableElevation
-                                            size='small'
-                                            sx={{ px: '1em' }}>
-                                            Choose File
+                                        <Button variant='secondary'>
+                                            <label htmlFor='saml-provider-input'>Choose File</label>
                                             <input
+                                                id='saml-provider-input'
                                                 hidden
                                                 type='file'
                                                 accept='.xml'
@@ -145,10 +140,14 @@ const CreateSAMLProviderForm: React.FC<{
                 </Grid>
             </DialogContent>
             <DialogActions>
-                <Button color='inherit' onClick={handleClose} data-testid='create-saml-provider-dialog_button-close'>
+                <Button
+                    type='button'
+                    variant='tertiary'
+                    onClick={handleClose}
+                    data-testid='create-saml-provider-dialog_button-close'>
                     Cancel
                 </Button>
-                <Button type='submit' color='primary' data-testid='create-saml-provider-dialog_button-save'>
+                <Button data-testid='create-saml-provider-dialog_button-save' type='submit'>
                     Submit
                 </Button>
             </DialogActions>

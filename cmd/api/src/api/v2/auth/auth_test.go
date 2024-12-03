@@ -43,7 +43,6 @@ import (
 	"github.com/specterops/bloodhound/src/config"
 	"github.com/specterops/bloodhound/src/ctx"
 	"github.com/specterops/bloodhound/src/database"
-	dbmocks "github.com/specterops/bloodhound/src/database/mocks"
 	"github.com/specterops/bloodhound/src/database/types/null"
 	"github.com/specterops/bloodhound/src/model"
 	"github.com/specterops/bloodhound/src/model/appcfg"
@@ -57,40 +56,62 @@ import (
 
 const (
 	samlProviderPathFmt           = "/api/v2/saml/providers/%d"
-	updateUserPathFmt             = "/api/v2/auth/users/%s"
 	updateUserSecretPathFmt       = "/api/v2/auth/users/%s/secret"
+	ssoProviderID           int32 = 123
 	samlProviderID          int32 = 1234
 	samlProviderIDStr             = "1234"
 )
 
 func TestManagementResource_PutUserAuthSecret(t *testing.T) {
 	var (
-		goodUserID        = must.NewUUIDv4()
-		badUserID         = must.NewUUIDv4()
+		currentPassword   = "currentPassword"
+		goodUser          = model.User{AuthSecret: defaultDigestAuthSecret(t, currentPassword), Unique: model.Unique{ID: must.NewUUIDv4()}}
+		otherUser         = model.User{Unique: model.Unique{ID: must.NewUUIDv4()}}
+		badUser           = model.User{SAMLProviderID: null.Int32From(1), Unique: model.Unique{ID: must.NewUUIDv4()}}
 		mockCtrl          = gomock.NewController(t)
 		resources, mockDB = apitest.NewAuthManagementResource(mockCtrl)
 	)
-
 	defer mockCtrl.Finish()
+	bhCtx := ctx.Get(context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{}))
+	bhCtx.AuthCtx.Owner = goodUser
+	_, isUser := authz.GetUserFromAuthCtx(bhCtx.AuthCtx)
+	require.True(t, isUser)
 
-	mockDB.EXPECT().GetUser(gomock.Any(), badUserID).Return(model.User{SAMLProviderID: null.Int32From(1)}, nil)
-	mockDB.EXPECT().GetUser(gomock.Any(), goodUserID).Return(model.User{}, nil)
+	// Happy paths
+	mockDB.EXPECT().GetUser(gomock.Any(), goodUser.ID).Return(goodUser, nil).Times(2)
 	mockDB.EXPECT().GetConfigurationParameter(gomock.Any(), appcfg.PasswordExpirationWindow).Return(appcfg.Parameter{
 		Key: appcfg.PasswordExpirationWindow,
 		Value: must.NewJSONBObject(appcfg.PasswordExpiration{
 			Duration: appcfg.DefaultPasswordExpirationWindow,
 		}),
-	}, nil).Times(1)
-	mockDB.EXPECT().CreateAuthSecret(gomock.Any(), gomock.Any()).Return(model.AuthSecret{}, nil).Times(1)
+	}, nil).Times(2)
 
-	// Happy path
+	// Change own user secret requires current password
+	mockDB.EXPECT().UpdateAuthSecret(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	test.Request(t).
+		WithContext(bhCtx).
 		WithMethod(http.MethodPut).
 		WithHeader(headers.RequestID.String(), "requestID").
-		WithURL(fmt.Sprintf(updateUserSecretPathFmt, goodUserID.String())).
-		WithURLPathVars(map[string]string{
-			"user_id": goodUserID.String(),
+		WithURL(fmt.Sprintf(updateUserSecretPathFmt, goodUser.ID.String())). //nolint:govet // Ignore non-constant format string failure because it's test code
+		WithURLPathVars(map[string]string{"user_id": goodUser.ID.String()}).
+		WithBody(v2.SetUserSecretRequest{
+			CurrentSecret:      currentPassword,
+			Secret:             "tesT12345!@#$",
+			NeedsPasswordReset: false,
 		}).
+		OnHandlerFunc(resources.PutUserAuthSecret).
+		Require().
+		ResponseStatusCode(http.StatusOK)
+
+	// Change another users secret does not require current password
+	mockDB.EXPECT().GetUser(gomock.Any(), otherUser.ID).Return(otherUser, nil)
+	mockDB.EXPECT().CreateAuthSecret(gomock.Any(), gomock.Any()).Return(model.AuthSecret{}, nil).Times(1)
+	test.Request(t).
+		WithContext(bhCtx).
+		WithMethod(http.MethodPut).
+		WithHeader(headers.RequestID.String(), "requestID").
+		WithURL(fmt.Sprintf(updateUserSecretPathFmt, goodUser.ID.String())). //nolint:govet // Ignore non-constant format string failure because it's test code
+		WithURLPathVars(map[string]string{"user_id": otherUser.ID.String()}).
 		WithBody(v2.SetUserSecretRequest{
 			Secret:             "tesT12345!@#$",
 			NeedsPasswordReset: false,
@@ -100,13 +121,13 @@ func TestManagementResource_PutUserAuthSecret(t *testing.T) {
 		ResponseStatusCode(http.StatusOK)
 
 	// Negative path where a user already has a SAML provider set
+	mockDB.EXPECT().GetUser(gomock.Any(), badUser.ID).Return(badUser, nil)
 	test.Request(t).
+		WithContext(bhCtx).
 		WithMethod(http.MethodPut).
 		WithHeader(headers.RequestID.String(), "requestID").
-		WithURL(fmt.Sprintf(updateUserSecretPathFmt, badUserID.String())).
-		WithURLPathVars(map[string]string{
-			"user_id": badUserID.String(),
-		}).
+		WithURL(fmt.Sprintf(updateUserSecretPathFmt, badUser.ID.String())). //nolint:govet // Ignore non-constant format string failure because it's test code
+		WithURLPathVars(map[string]string{"user_id": badUser.ID.String()}).
 		WithBody(v2.SetUserSecretRequest{
 			Secret:             "tesT12345!@#$",
 			NeedsPasswordReset: false,
@@ -116,11 +137,28 @@ func TestManagementResource_PutUserAuthSecret(t *testing.T) {
 		ResponseJSONBody(
 			api.ErrorWrapper{
 				HTTPStatus: http.StatusBadRequest,
-				Errors: []api.ErrorDetails{
-					{
-						Message: "Invalid operation, user is SSO",
-					},
-				},
+				Errors:     []api.ErrorDetails{{Message: "Invalid operation, user is SSO"}},
+			},
+		)
+
+	// Negative path where a user uses invalid current password
+	test.Request(t).
+		WithContext(bhCtx).
+		WithMethod(http.MethodPut).
+		WithHeader(headers.RequestID.String(), "requestID").
+		WithURL(fmt.Sprintf(updateUserSecretPathFmt, goodUser.ID.String())). //nolint:govet // Ignore non-constant format string failure because it's test code
+		WithURLPathVars(map[string]string{"user_id": goodUser.ID.String()}).
+		WithBody(v2.SetUserSecretRequest{
+			CurrentSecret:      "wrongPassword",
+			Secret:             "tesT12345!@#$",
+			NeedsPasswordReset: false,
+		}).
+		OnHandlerFunc(resources.PutUserAuthSecret).
+		Require().
+		ResponseJSONBody(
+			api.ErrorWrapper{
+				HTTPStatus: http.StatusUnauthorized,
+				Errors:     []api.ErrorDetails{{Message: "Invalid current password"}},
 			},
 		)
 }
@@ -136,44 +174,60 @@ func TestManagementResource_EnableUserSAML(t *testing.T) {
 
 	defer mockCtrl.Finish()
 
-	mockDB.EXPECT().GetRoles(gomock.Any(), gomock.Eq(goodRoles)).Return(model.Roles{}, nil).AnyTimes()
-	mockDB.EXPECT().GetUser(gomock.Any(), badUserID).Return(model.User{AuthSecret: &model.AuthSecret{}}, nil)
-	mockDB.EXPECT().GetUser(gomock.Any(), goodUserID).Return(model.User{}, nil)
-	mockDB.EXPECT().GetSAMLProvider(gomock.Any(), samlProviderID).Return(model.SAMLProvider{}, nil).Times(2)
-	mockDB.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil).Times(2)
-	mockDB.EXPECT().DeleteAuthSecret(gomock.Any(), gomock.Any()).Return(nil)
+	t.Run("Successfully update user with deprecated saml provider", func(t *testing.T) {
+		mockDB.EXPECT().GetRoles(gomock.Any(), gomock.Eq(goodRoles)).Return(model.Roles{}, nil)
+		mockDB.EXPECT().GetUser(gomock.Any(), goodUserID).Return(model.User{}, nil)
+		mockDB.EXPECT().GetSAMLProvider(gomock.Any(), samlProviderID).Return(model.SAMLProvider{}, nil)
+		mockDB.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil)
 
-	// Happy path
-	test.Request(t).
-		WithMethod(http.MethodPut).
-		WithURL(fmt.Sprintf(updateUserPathFmt, goodUserID.String())).
-		WithURLPathVars(map[string]string{
-			"user_id": goodUserID.String(),
-		}).
-		WithBody(v2.UpdateUserRequest{
-			Principal:      "tester",
-			Roles:          goodRoles,
-			SAMLProviderID: samlProviderIDStr,
-		}).
-		OnHandlerFunc(resources.UpdateUser).
-		Require().
-		ResponseStatusCode(http.StatusOK)
+		test.Request(t).
+			WithURLPathVars(map[string]string{"user_id": goodUserID.String()}).
+			WithBody(v2.UpdateUserRequest{
+				Principal:      "tester",
+				Roles:          goodRoles,
+				SAMLProviderID: samlProviderIDStr,
+			}).
+			OnHandlerFunc(resources.UpdateUser).
+			Require().
+			ResponseStatusCode(http.StatusOK)
+	})
 
-	// Negative path where a user already has an auth secret set
-	test.Request(t).
-		WithMethod(http.MethodPut).
-		WithURL(fmt.Sprintf(updateUserPathFmt, badUserID.String())).
-		WithURLPathVars(map[string]string{
-			"user_id": badUserID.String(),
-		}).
-		WithBody(v2.UpdateUserRequest{
-			Principal:      "tester",
-			Roles:          goodRoles,
-			SAMLProviderID: samlProviderIDStr,
-		}).
-		OnHandlerFunc(resources.UpdateUser).
-		Require().
-		ResponseStatusCode(http.StatusOK)
+	t.Run("Fails if auth secret set", func(t *testing.T) {
+		mockDB.EXPECT().GetRoles(gomock.Any(), gomock.Eq(goodRoles)).Return(model.Roles{}, nil)
+		mockDB.EXPECT().GetUser(gomock.Any(), badUserID).Return(model.User{AuthSecret: &model.AuthSecret{}}, nil)
+		mockDB.EXPECT().GetSAMLProvider(gomock.Any(), samlProviderID).Return(model.SAMLProvider{}, nil)
+		mockDB.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil)
+		mockDB.EXPECT().DeleteAuthSecret(gomock.Any(), gomock.Any()).Return(nil)
+
+		test.Request(t).
+			WithURLPathVars(map[string]string{"user_id": badUserID.String()}).
+			WithBody(v2.UpdateUserRequest{
+				Principal:      "tester",
+				Roles:          goodRoles,
+				SAMLProviderID: samlProviderIDStr,
+			}).
+			OnHandlerFunc(resources.UpdateUser).
+			Require().
+			ResponseStatusCode(http.StatusOK)
+	})
+
+	t.Run("Successful user update with sso provider-saml", func(t *testing.T) {
+		mockDB.EXPECT().GetRoles(gomock.Any(), gomock.Eq(goodRoles)).Return(model.Roles{}, nil)
+		mockDB.EXPECT().GetUser(gomock.Any(), goodUserID).Return(model.User{}, nil)
+		mockDB.EXPECT().GetSSOProviderById(gomock.Any(), ssoProviderID).Return(model.SSOProvider{}, nil)
+		mockDB.EXPECT().UpdateUser(gomock.Any(), gomock.Any()).Return(nil)
+
+		test.Request(t).
+			WithURLPathVars(map[string]string{"user_id": goodUserID.String()}).
+			WithBody(v2.UpdateUserRequest{
+				Principal:     "tester",
+				Roles:         goodRoles,
+				SSOProviderID: null.Int32From(123),
+			}).
+			OnHandlerFunc(resources.UpdateUser).
+			Require().
+			ResponseStatusCode(http.StatusOK)
+	})
 }
 
 func TestManagementResource_DeleteSAMLProvider(t *testing.T) {
@@ -204,16 +258,15 @@ func TestManagementResource_DeleteSAMLProvider(t *testing.T) {
 
 	mockDB.EXPECT().GetSAMLProvider(gomock.Any(), goodSAMLProvider.ID).Return(goodSAMLProvider, nil)
 	mockDB.EXPECT().GetSAMLProvider(gomock.Any(), samlProviderWithUsers.ID).Return(samlProviderWithUsers, nil)
-	mockDB.EXPECT().DeleteSAMLProvider(gomock.Any(), gomock.Eq(goodSAMLProvider)).Return(nil)
-	mockDB.EXPECT().DeleteSAMLProvider(gomock.Any(), gomock.Eq(samlProviderWithUsers)).Return(nil)
+	mockDB.EXPECT().DeleteSSOProvider(gomock.Any(), gomock.Eq(int(goodSAMLProvider.SSOProviderID.Int32))).Return(nil)
+	mockDB.EXPECT().DeleteSSOProvider(gomock.Any(), gomock.Eq(int(samlProviderWithUsers.SSOProviderID.Int32))).Return(nil)
 	mockDB.EXPECT().GetSAMLProviderUsers(gomock.Any(), goodSAMLProvider.ID).Return(nil, nil)
 	mockDB.EXPECT().GetSAMLProviderUsers(gomock.Any(), samlProviderWithUsers.ID).Return(model.Users{samlEnabledUser}, nil)
-	mockDB.EXPECT().UpdateUser(gomock.Any(), gomock.Eq(samlEnabledUser)).Return(nil)
 
 	// Happy path
 	test.Request(t).
 		WithMethod(http.MethodDelete).
-		WithURL(fmt.Sprintf(samlProviderPathFmt, goodSAMLProvider.ID)).
+		WithURL(fmt.Sprintf(samlProviderPathFmt, goodSAMLProvider.ID)). //nolint:govet // Ignore non-constant format string failure because it's test code
 		WithURLPathVars(map[string]string{
 			api.URIPathVariableSAMLProviderID: fmt.Sprintf("%d", goodSAMLProvider.ID),
 		}).
@@ -224,7 +277,7 @@ func TestManagementResource_DeleteSAMLProvider(t *testing.T) {
 	// Negative path where a provider has attached users
 	test.Request(t).
 		WithMethod(http.MethodDelete).
-		WithURL(fmt.Sprintf(samlProviderPathFmt, samlProviderWithUsers.ID)).
+		WithURL(fmt.Sprintf(samlProviderPathFmt, samlProviderWithUsers.ID)). //nolint:govet // Ignore non-constant format string failure because it's test code
 		WithURLPathVars(map[string]string{
 			api.URIPathVariableSAMLProviderID: fmt.Sprintf("%d", samlProviderWithUsers.ID),
 		}).
@@ -238,13 +291,7 @@ func TestManagementResource_ListPermissions_SortingError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/permissions"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -271,13 +318,7 @@ func TestManagementResource_ListPermissions_InvalidFilterPredicate(t *testing.T)
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/permissions"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -304,13 +345,7 @@ func TestManagementResource_ListPermissions_PredicateMismatchWithColumn(t *testi
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/permissions"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -337,14 +372,8 @@ func TestManagementResource_ListPermissions_DBError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/permissions"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
+	resources, mockDB := apitest.NewAuthManagementResource(mockCtrl)
 	mockDB.EXPECT().GetAllPermissions(gomock.Any(), "authority desc, name", model.SQLFilter{SQLString: "name = ?", Params: []any{"foo"}}).Return(model.Permissions{}, fmt.Errorf("foo"))
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -430,13 +459,7 @@ func TestManagementResource_ListRoles_SortingError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/roles"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -463,13 +486,7 @@ func TestManagementResource_ListRoles_InvalidColumn(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/roles"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -496,13 +513,7 @@ func TestManagementResource_ListRoles_InvalidFilterPredicate(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/roles"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -529,13 +540,7 @@ func TestManagementResource_ListRoles_PredicateMismatchWithColumn(t *testing.T) 
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/roles"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -562,14 +567,8 @@ func TestManagementResource_ListRoles_DBError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/roles"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
+	resources, mockDB := apitest.NewAuthManagementResource(mockCtrl)
 	mockDB.EXPECT().GetAllRoles(gomock.Any(), "description desc, name", model.SQLFilter{}).Return(model.Roles{}, fmt.Errorf("foo"))
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -778,13 +777,7 @@ func TestManagementResource_ListUsers_SortingError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/users"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -811,13 +804,7 @@ func TestManagementResource_ListUsers_InvalidColumn(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/users"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -844,13 +831,7 @@ func TestManagementResource_ListUsers_InvalidFilterPredicate(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/users"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -877,13 +858,7 @@ func TestManagementResource_ListUsers_PredicateMismatchWithColumn(t *testing.T) 
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/users"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -910,14 +885,8 @@ func TestManagementResource_ListUsers_DBError(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/users"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
+	resources, mockDB := apitest.NewAuthManagementResource(mockCtrl)
 	mockDB.EXPECT().GetAllUsers(gomock.Any(), "first_name desc, last_name", model.SQLFilter{}).Return(model.Users{}, fmt.Errorf("foo"))
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -1987,13 +1956,7 @@ func TestManagementResource_ListAuthTokens_SortingError(t *testing.T) {
 	_, isUser := authz.GetUserFromAuthCtx(bhCtx.AuthCtx)
 	require.True(t, isUser)
 
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	endpoint := "/api/v2/auth/tokens"
 	if req, err := http.NewRequestWithContext(c, "GET", endpoint, nil); err != nil {
@@ -2020,13 +1983,7 @@ func TestManagementResource_ListAuthTokens_InvalidColumn(t *testing.T) {
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/tokens"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -2053,13 +2010,7 @@ func TestManagementResource_ListAuthTokens_InvalidFilterPredicate(t *testing.T) 
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/tokens"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -2086,13 +2037,7 @@ func TestManagementResource_ListAuthTokens_PredicateMismatchWithColumn(t *testin
 	defer mockCtrl.Finish()
 
 	endpoint := "/api/v2/auth/tokens"
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
+	resources, _ := apitest.NewAuthManagementResource(mockCtrl)
 
 	ctx := context.WithValue(context.Background(), ctx.ValueKey, &ctx.Context{})
 	if req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil); err != nil {
@@ -2134,14 +2079,8 @@ func TestManagementResource_ListAuthTokens_DBError(t *testing.T) {
 	_, isUser := authz.GetUserFromAuthCtx(bhCtx.AuthCtx)
 	require.True(t, isUser)
 
-	mockDB := dbmocks.NewMockDatabase(mockCtrl)
+	resources, mockDB := apitest.NewAuthManagementResource(mockCtrl)
 	mockDB.EXPECT().GetAllAuthTokens(gomock.Any(), "name, last_access desc", model.SQLFilter{SQLString: "user_id = ?", Params: []any{user.ID.String()}}).Return(model.AuthTokens{}, fmt.Errorf("foo"))
-
-	config, err := config.NewDefaultConfiguration()
-	require.Nilf(t, err, "Failed to create default configuration: %v", err)
-	config.Crypto.Argon2.NumIterations = 1
-	config.Crypto.Argon2.NumThreads = 1
-	resources := auth.NewManagementResource(config, mockDB, authz.NewAuthorizer(mockDB))
 
 	endpoint := "/api/v2/auth/tokens"
 	if req, err := http.NewRequestWithContext(c, "GET", endpoint, nil); err != nil {

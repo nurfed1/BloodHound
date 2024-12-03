@@ -105,9 +105,10 @@ export enum ActiveDirectoryRelationshipKind {
     AddKeyCredentialLink = 'AddKeyCredentialLink',
     LocalToComputer = 'LocalToComputer',
     MemberOfLocalGroup = 'MemberOfLocalGroup',
-    RemoteInteractiveLogonPrivilege = 'RemoteInteractiveLogonPrivilege',
+    RemoteInteractiveLogonRight = 'RemoteInteractiveLogonRight',
     SyncLAPSPassword = 'SyncLAPSPassword',
     WriteAccountRestrictions = 'WriteAccountRestrictions',
+    WriteGPLink = 'WriteGPLink',
     RootCAFor = 'RootCAFor',
     DCFor = 'DCFor',
     PublishedTo = 'PublishedTo',
@@ -121,8 +122,6 @@ export enum ActiveDirectoryRelationshipKind {
     NTAuthStoreFor = 'NTAuthStoreFor',
     TrustedForNTAuth = 'TrustedForNTAuth',
     EnterpriseCAFor = 'EnterpriseCAFor',
-    CanAbuseUPNCertMapping = 'CanAbuseUPNCertMapping',
-    CanAbuseWeakCertBinding = 'CanAbuseWeakCertBinding',
     IssuedSignedBy = 'IssuedSignedBy',
     GoldenCert = 'GoldenCert',
     EnrollOnBehalfOf = 'EnrollOnBehalfOf',
@@ -140,6 +139,7 @@ export enum ActiveDirectoryRelationshipKind {
     ADCSESC10a = 'ADCSESC10a',
     ADCSESC10b = 'ADCSESC10b',
     ADCSESC13 = 'ADCSESC13',
+    SyncedToEntraUser = 'SyncedToEntraUser',
 }
 export function ActiveDirectoryRelationshipKindToDisplay(value: ActiveDirectoryRelationshipKind): string | undefined {
     switch (value) {
@@ -211,12 +211,14 @@ export function ActiveDirectoryRelationshipKindToDisplay(value: ActiveDirectoryR
             return 'LocalToComputer';
         case ActiveDirectoryRelationshipKind.MemberOfLocalGroup:
             return 'MemberOfLocalGroup';
-        case ActiveDirectoryRelationshipKind.RemoteInteractiveLogonPrivilege:
-            return 'RemoteInteractiveLogonPrivilege';
+        case ActiveDirectoryRelationshipKind.RemoteInteractiveLogonRight:
+            return 'RemoteInteractiveLogonRight';
         case ActiveDirectoryRelationshipKind.SyncLAPSPassword:
             return 'SyncLAPSPassword';
         case ActiveDirectoryRelationshipKind.WriteAccountRestrictions:
             return 'WriteAccountRestrictions';
+        case ActiveDirectoryRelationshipKind.WriteGPLink:
+            return 'WriteGPLink';
         case ActiveDirectoryRelationshipKind.RootCAFor:
             return 'RootCAFor';
         case ActiveDirectoryRelationshipKind.DCFor:
@@ -243,10 +245,6 @@ export function ActiveDirectoryRelationshipKindToDisplay(value: ActiveDirectoryR
             return 'TrustedForNTAuth';
         case ActiveDirectoryRelationshipKind.EnterpriseCAFor:
             return 'EnterpriseCAFor';
-        case ActiveDirectoryRelationshipKind.CanAbuseUPNCertMapping:
-            return 'CanAbuseUPNCertMapping';
-        case ActiveDirectoryRelationshipKind.CanAbuseWeakCertBinding:
-            return 'CanAbuseWeakCertBinding';
         case ActiveDirectoryRelationshipKind.IssuedSignedBy:
             return 'IssuedSignedBy';
         case ActiveDirectoryRelationshipKind.GoldenCert:
@@ -281,6 +279,8 @@ export function ActiveDirectoryRelationshipKindToDisplay(value: ActiveDirectoryR
             return 'ADCSESC10b';
         case ActiveDirectoryRelationshipKind.ADCSESC13:
             return 'ADCSESC13';
+        case ActiveDirectoryRelationshipKind.SyncedToEntraUser:
+            return 'SyncedToEntraUser';
         default:
             return undefined;
     }
@@ -315,6 +315,7 @@ export enum ActiveDirectoryKindProperties {
     RoleSeparationEnabledCollected = 'roleseparationenabledcollected',
     HasBasicConstraints = 'hasbasicconstraints',
     BasicConstraintPathLength = 'basicconstraintpathlength',
+    UnresolvedPublishedTemplates = 'unresolvedpublishedtemplates',
     DNSHostname = 'dnshostname',
     CrossCertificatePair = 'crosscertificatepair',
     DistinguishedName = 'distinguishedname',
@@ -362,6 +363,7 @@ export enum ActiveDirectoryKindProperties {
     SchemaVersion = 'schemaversion',
     RequiresManagerApproval = 'requiresmanagerapproval',
     AuthenticationEnabled = 'authenticationenabled',
+    SchannelAuthenticationEnabled = 'schannelauthenticationenabled',
     EnrolleeSuppliesSubject = 'enrolleesuppliessubject',
     CertificateApplicationPolicy = 'certificateapplicationpolicy',
     CertificateNameFlag = 'certificatenameflag',
@@ -377,6 +379,28 @@ export enum ActiveDirectoryKindProperties {
     CertTemplateOID = 'certtemplateoid',
     GroupLinkID = 'grouplinkid',
     ObjectGUID = 'objectguid',
+    ExpirePasswordsOnSmartCardOnlyAccounts = 'expirepasswordsonsmartcardonlyaccounts',
+    MachineAccountQuota = 'machineaccountquota',
+    SupportedKerberosEncryptionTypes = 'supportedencryptiontypes',
+    TGTDelegationEnabled = 'tgtdelegationenabled',
+    PasswordStoredUsingReversibleEncryption = 'encryptedtextpwdallowed',
+    SmartcardRequired = 'smartcardrequired',
+    UseDESKeyOnly = 'usedeskeyonly',
+    LogonScriptEnabled = 'logonscriptenabled',
+    LockedOut = 'lockedout',
+    UserCannotChangePassword = 'passwordcantchange',
+    PasswordExpired = 'passwordexpired',
+    DSHeuristics = 'dsheuristics',
+    UserAccountControl = 'useraccountcontrol',
+    TrustAttributes = 'trustattributes',
+    MinPwdLength = 'minpwdlength',
+    PwdProperties = 'pwdproperties',
+    PwdHistoryLength = 'pwdhistorylength',
+    LockoutThreshold = 'lockoutthreshold',
+    MinPwdAge = 'minpwdage',
+    MaxPwdAge = 'maxpwdage',
+    LockoutDuration = 'lockoutduration',
+    LockoutObservationWindow = 'lockoutobservationwindow',
 }
 export function ActiveDirectoryKindPropertiesToDisplay(value: ActiveDirectoryKindProperties): string | undefined {
     switch (value) {
@@ -410,6 +434,8 @@ export function ActiveDirectoryKindPropertiesToDisplay(value: ActiveDirectoryKin
             return 'Has Basic Constraints';
         case ActiveDirectoryKindProperties.BasicConstraintPathLength:
             return 'Basic Constraint Path Length';
+        case ActiveDirectoryKindProperties.UnresolvedPublishedTemplates:
+            return 'Unresolved Published Certificate Templates';
         case ActiveDirectoryKindProperties.DNSHostname:
             return 'DNS Hostname';
         case ActiveDirectoryKindProperties.CrossCertificatePair:
@@ -425,7 +451,7 @@ export function ActiveDirectoryKindPropertiesToDisplay(value: ActiveDirectoryKin
         case ActiveDirectoryKindProperties.HighValue:
             return 'High Value';
         case ActiveDirectoryKindProperties.BlocksInheritance:
-            return 'Blocks Inheritance';
+            return 'Blocks GPO Inheritance';
         case ActiveDirectoryKindProperties.IsACL:
             return 'Is ACL';
         case ActiveDirectoryKindProperties.IsACLProtected:
@@ -495,19 +521,21 @@ export function ActiveDirectoryKindPropertiesToDisplay(value: ActiveDirectoryKin
         case ActiveDirectoryKindProperties.AuthorizedSignatures:
             return 'Authorized Signatures Required';
         case ActiveDirectoryKindProperties.ApplicationPolicies:
-            return 'Application Policies';
+            return 'Application Policies Required';
         case ActiveDirectoryKindProperties.IssuancePolicies:
-            return 'Issuance Policies';
+            return 'Issuance Policies Required';
         case ActiveDirectoryKindProperties.SchemaVersion:
             return 'Schema Version';
         case ActiveDirectoryKindProperties.RequiresManagerApproval:
             return 'Requires Manager Approval';
         case ActiveDirectoryKindProperties.AuthenticationEnabled:
             return 'Authentication Enabled';
+        case ActiveDirectoryKindProperties.SchannelAuthenticationEnabled:
+            return 'Schannel Authentication Enabled';
         case ActiveDirectoryKindProperties.EnrolleeSuppliesSubject:
             return 'Enrollee Supplies Subject';
         case ActiveDirectoryKindProperties.CertificateApplicationPolicy:
-            return 'Certificate Application Policies';
+            return 'Application Policy Extensions';
         case ActiveDirectoryKindProperties.CertificateNameFlag:
             return 'Certificate Name Flags';
         case ActiveDirectoryKindProperties.EffectiveEKUs:
@@ -534,6 +562,50 @@ export function ActiveDirectoryKindPropertiesToDisplay(value: ActiveDirectoryKin
             return 'Group Link ID';
         case ActiveDirectoryKindProperties.ObjectGUID:
             return 'Object GUID';
+        case ActiveDirectoryKindProperties.ExpirePasswordsOnSmartCardOnlyAccounts:
+            return 'Expire Passwords on Smart Card only Accounts';
+        case ActiveDirectoryKindProperties.MachineAccountQuota:
+            return 'Machine Account Quota';
+        case ActiveDirectoryKindProperties.SupportedKerberosEncryptionTypes:
+            return 'Supported Kerberos Encryption Types';
+        case ActiveDirectoryKindProperties.TGTDelegationEnabled:
+            return 'TGT Delegation Enabled';
+        case ActiveDirectoryKindProperties.PasswordStoredUsingReversibleEncryption:
+            return 'Password Stored Using Reversible Encryption';
+        case ActiveDirectoryKindProperties.SmartcardRequired:
+            return 'Smartcard Required';
+        case ActiveDirectoryKindProperties.UseDESKeyOnly:
+            return 'Use DES Key Only';
+        case ActiveDirectoryKindProperties.LogonScriptEnabled:
+            return 'Logon Script Enabled';
+        case ActiveDirectoryKindProperties.LockedOut:
+            return 'Locked Out';
+        case ActiveDirectoryKindProperties.UserCannotChangePassword:
+            return 'User Cannot Change Password';
+        case ActiveDirectoryKindProperties.PasswordExpired:
+            return 'Password Expired';
+        case ActiveDirectoryKindProperties.DSHeuristics:
+            return 'DSHeuristics';
+        case ActiveDirectoryKindProperties.UserAccountControl:
+            return 'User Account Control';
+        case ActiveDirectoryKindProperties.TrustAttributes:
+            return 'Trust Attributes';
+        case ActiveDirectoryKindProperties.MinPwdLength:
+            return 'Minimum password length';
+        case ActiveDirectoryKindProperties.PwdProperties:
+            return 'Password Properties';
+        case ActiveDirectoryKindProperties.PwdHistoryLength:
+            return 'Password History Length';
+        case ActiveDirectoryKindProperties.LockoutThreshold:
+            return 'Lockout Threshold';
+        case ActiveDirectoryKindProperties.MinPwdAge:
+            return 'Minimum Password Age';
+        case ActiveDirectoryKindProperties.MaxPwdAge:
+            return 'Maximum Password Age';
+        case ActiveDirectoryKindProperties.LockoutDuration:
+            return 'Lockout Duration';
+        case ActiveDirectoryKindProperties.LockoutObservationWindow:
+            return 'Lockout Observation Window';
         default:
             return undefined;
     }
@@ -571,6 +643,7 @@ export function ActiveDirectoryPathfindingEdges(): ActiveDirectoryRelationshipKi
         ActiveDirectoryRelationshipKind.AddKeyCredentialLink,
         ActiveDirectoryRelationshipKind.SyncLAPSPassword,
         ActiveDirectoryRelationshipKind.WriteAccountRestrictions,
+        ActiveDirectoryRelationshipKind.WriteGPLink,
         ActiveDirectoryRelationshipKind.GoldenCert,
         ActiveDirectoryRelationshipKind.ADCSESC1,
         ActiveDirectoryRelationshipKind.ADCSESC3,
@@ -585,6 +658,7 @@ export function ActiveDirectoryPathfindingEdges(): ActiveDirectoryRelationshipKi
         ActiveDirectoryRelationshipKind.ADCSESC10b,
         ActiveDirectoryRelationshipKind.ADCSESC13,
         ActiveDirectoryRelationshipKind.DCFor,
+        ActiveDirectoryRelationshipKind.SyncedToEntraUser,
     ];
 }
 export enum AzureNodeKind {
@@ -702,6 +776,7 @@ export enum AzureRelationshipKind {
     AZMGAddSecret = 'AZMGAddSecret',
     AZMGGrantAppRoles = 'AZMGGrantAppRoles',
     AZMGGrantRole = 'AZMGGrantRole',
+    SyncedToADUser = 'SyncedToADUser',
 }
 export function AzureRelationshipKindToDisplay(value: AzureRelationshipKind): string | undefined {
     switch (value) {
@@ -797,6 +872,8 @@ export function AzureRelationshipKindToDisplay(value: AzureRelationshipKind): st
             return 'AZMGGrantAppRoles';
         case AzureRelationshipKind.AZMGGrantRole:
             return 'AZMGGrantRole';
+        case AzureRelationshipKind.SyncedToADUser:
+            return 'SyncedToADUser';
         default:
             return undefined;
     }
@@ -828,6 +905,7 @@ export enum AzureKindProperties {
     MFAEnabled = 'mfaenabled',
     License = 'license',
     Licenses = 'licenses',
+    LoginURL = 'loginurl',
     MFAEnforced = 'mfaenforced',
     UserPrincipalName = 'userprincipalname',
     IsAssignableToRole = 'isassignabletorole',
@@ -887,6 +965,8 @@ export function AzureKindPropertiesToDisplay(value: AzureKindProperties): string
             return 'License';
         case AzureKindProperties.Licenses:
             return 'Licenses';
+        case AzureKindProperties.LoginURL:
+            return 'Login URL';
         case AzureKindProperties.MFAEnforced:
             return 'MFA Enforced';
         case AzureKindProperties.UserPrincipalName:
@@ -943,6 +1023,7 @@ export function AzurePathfindingEdges(): AzureRelationshipKind[] {
         AzureRelationshipKind.AZMGAddSecret,
         AzureRelationshipKind.AZMGGrantAppRoles,
         AzureRelationshipKind.AZMGGrantRole,
+        AzureRelationshipKind.SyncedToADUser,
     ];
 }
 export enum CommonNodeKind {

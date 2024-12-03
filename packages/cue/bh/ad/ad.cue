@@ -126,6 +126,13 @@ BasicConstraintPathLength: types.#StringEnum & {
 	representation: "basicconstraintpathlength"
 }
 
+UnresolvedPublishedTemplates: types.#StringEnum & {
+	symbol: 		"UnresolvedPublishedTemplates"
+	schema: 		"ad"
+	name:           "Unresolved Published Certificate Templates"
+	representation: "unresolvedpublishedtemplates"
+}
+
 DNSHostname: types.#StringEnum & {
 	symbol: 		"DNSHostname"
 	schema: 		"ad"
@@ -171,7 +178,7 @@ HighValue: types.#StringEnum & {
 BlocksInheritance: types.#StringEnum & {
 	symbol:         "BlocksInheritance"
 	schema:         "ad"
-	name:           "Blocks Inheritance"
+	name:           "Blocks GPO Inheritance"
 	representation: "blocksinheritance"
 }
 
@@ -437,14 +444,14 @@ AuthorizedSignatures: types.#StringEnum & {
 ApplicationPolicies: types.#StringEnum & {
 	symbol: "ApplicationPolicies"
 	schema: "ad"
-	name: "Application Policies"
+	name: "Application Policies Required"
 	representation: "applicationpolicies"
 }
 
 IssuancePolicies: types.#StringEnum & {
 	symbol: "IssuancePolicies"
 	schema: "ad"
-	name: "Issuance Policies"
+	name: "Issuance Policies Required"
 	representation: "issuancepolicies"
 }
 
@@ -469,6 +476,13 @@ AuthenticationEnabled: types.#StringEnum & {
 	representation: "authenticationenabled"
 }
 
+SchannelAuthenticationEnabled: types.#StringEnum & {
+	symbol: "SchannelAuthenticationEnabled"
+	schema: "ad"
+	name: "Schannel Authentication Enabled"
+	representation: "schannelauthenticationenabled"
+}
+
 EnrolleeSuppliesSubject: types.#StringEnum & {
 	symbol: "EnrolleeSuppliesSubject"
 	schema: "ad"
@@ -479,7 +493,7 @@ EnrolleeSuppliesSubject: types.#StringEnum & {
 CertificateApplicationPolicy: types.#StringEnum & {
 	symbol: "CertificateApplicationPolicy"
 	schema: "ad"
-	name: "Certificate Application Policies"
+	name: "Application Policy Extensions"
 	representation: "certificateapplicationpolicy"
 }
 
@@ -567,6 +581,160 @@ ObjectGUID: types.#StringEnum & {
 	representation: "objectguid"
 }
 
+ExpirePasswordsOnSmartCardOnlyAccounts: types.#StringEnum & {
+	symbol: "ExpirePasswordsOnSmartCardOnlyAccounts"
+	schema: "ad"
+	name: "Expire Passwords on Smart Card only Accounts"
+	representation: "expirepasswordsonsmartcardonlyaccounts"
+}
+
+MachineAccountQuota: types.#StringEnum & {
+	symbol: "MachineAccountQuota"
+	schema: "ad"
+	name: "Machine Account Quota"
+	representation: "machineaccountquota"
+}
+
+SupportedKerberosEncryptionTypes: types.#StringEnum & {
+	symbol: "SupportedKerberosEncryptionTypes"
+	schema: "ad"
+	name: "Supported Kerberos Encryption Types"
+	representation: "supportedencryptiontypes"
+}
+
+TGTDelegationEnabled: types.#StringEnum & {
+	symbol: "TGTDelegationEnabled"
+	schema: "ad"
+	name: "TGT Delegation Enabled"
+	representation: "tgtdelegationenabled"
+}
+
+PasswordStoredUsingReversibleEncryption: types.#StringEnum & {
+	symbol: "PasswordStoredUsingReversibleEncryption"
+	schema: "ad"
+	name: "Password Stored Using Reversible Encryption"
+	representation: "encryptedtextpwdallowed"
+}
+
+SmartcardRequired: types.#StringEnum & {
+	symbol: "SmartcardRequired"
+	schema: "ad"
+	name: "Smartcard Required"
+	representation: "smartcardrequired"
+}
+
+UseDESKeyOnly: types.#StringEnum & {
+	symbol: "UseDESKeyOnly"
+	schema: "ad"
+	name: "Use DES Key Only"
+	representation: "usedeskeyonly"
+}
+
+LogonScriptEnabled: types.#StringEnum & {
+	symbol: "LogonScriptEnabled"
+	schema: "ad"
+	name: "Logon Script Enabled"
+	representation: "logonscriptenabled"
+}
+
+LockedOut: types.#StringEnum & {
+	symbol: "LockedOut"
+	schema: "ad"
+	name: "Locked Out"
+	representation: "lockedout"
+}
+
+UserCannotChangePassword: types.#StringEnum & {
+	symbol: "UserCannotChangePassword"
+	schema: "ad"
+	name: "User Cannot Change Password"
+	representation: "passwordcantchange"
+}
+
+PasswordExpired: types.#StringEnum & {
+	symbol: "PasswordExpired"
+	schema: "ad"
+	name: "Password Expired"
+	representation: "passwordexpired"
+}
+
+DSHeuristics: types.#StringEnum & {
+	symbol: "DSHeuristics"
+	schema: "ad"
+	name: "DSHeuristics"
+	representation: "dsheuristics"
+}
+
+UserAccountControl: types.#StringEnum & {
+	symbol: "UserAccountControl"
+	schema: "ad"
+	name: "User Account Control"
+	representation: "useraccountcontrol"
+}
+
+TrustAttributes: types.#StringEnum & {
+	symbol: "TrustAttributes"
+	schema: "ad"
+	name: "Trust Attributes"
+	representation: "trustattributes"
+}
+
+LockoutDuration: types.#StringEnum & {
+	symbol: "LockoutDuration"
+	schema: "ad"
+	name: "Lockout Duration"
+	representation: "lockoutduration"
+}
+
+LockoutObservationWindow: types.#StringEnum & {
+	symbol: "LockoutObservationWindow"
+	schema: "ad"
+	name: "Lockout Observation Window"
+	representation: "lockoutobservationwindow"
+}
+
+MaxPwdAge: types.#StringEnum & {
+	symbol: "MaxPwdAge"
+	schema: "ad"
+	name: "Maximum Password Age"
+	representation: "maxpwdage"
+}
+
+MinPwdAge: types.#StringEnum & {
+	symbol: "MinPwdAge"
+	schema: "ad"
+	name: "Minimum Password Age"
+	representation: "minpwdage"
+}
+
+LockoutThreshold: types.#StringEnum & {
+	symbol: "LockoutThreshold"
+	schema: "ad"
+	name: "Lockout Threshold"
+	representation: "lockoutthreshold"
+}
+
+PwdHistoryLength: types.#StringEnum & {
+	symbol: "PwdHistoryLength"
+	schema: "ad"
+	name: "Password History Length"
+	representation: "pwdhistorylength"
+}
+
+PwdProperties: types.#StringEnum & {
+	symbol: "PwdProperties"
+	schema: "ad"
+	name: "Password Properties"
+	representation: "pwdproperties"
+}
+
+MinPwdLength: types.#StringEnum & {
+	symbol: "MinPwdLength"
+	schema: "ad"
+	name: "Minimum password length"
+	representation: "minpwdlength"
+}
+
 Properties: [
 	AdminCount,
 	CASecurityCollected,
@@ -583,6 +751,7 @@ Properties: [
 	RoleSeparationEnabledCollected,
 	HasBasicConstraints,
 	BasicConstraintPathLength,
+	UnresolvedPublishedTemplates,
 	DNSHostname,
 	CrossCertificatePair,
 	DistinguishedName,
@@ -630,6 +799,7 @@ Properties: [
 	SchemaVersion,
 	RequiresManagerApproval,
 	AuthenticationEnabled,
+	SchannelAuthenticationEnabled,
 	EnrolleeSuppliesSubject,
 	CertificateApplicationPolicy,
 	CertificateNameFlag,
@@ -644,7 +814,29 @@ Properties: [
 	CertificatePolicy,
 	CertTemplateOID,
 	GroupLinkID,
-	ObjectGUID
+	ObjectGUID,
+	ExpirePasswordsOnSmartCardOnlyAccounts,
+	MachineAccountQuota,
+	SupportedKerberosEncryptionTypes,
+	TGTDelegationEnabled,
+	PasswordStoredUsingReversibleEncryption,
+	SmartcardRequired,
+	UseDESKeyOnly,
+	LogonScriptEnabled,
+	LockedOut,
+	UserCannotChangePassword,
+	PasswordExpired,
+	DSHeuristics,
+	UserAccountControl,
+	TrustAttributes,
+	MinPwdLength,
+	PwdProperties,
+	PwdHistoryLength,
+	LockoutThreshold,
+	MinPwdAge,
+	MaxPwdAge,
+	LockoutDuration,
+	LockoutObservationWindow
 ]
 
 // Kinds
@@ -916,8 +1108,8 @@ AddKeyCredentialLink: types.#Kind & {
 	schema: "active_directory"
 }
 
-RemoteInteractiveLogonPrivilege: types.#Kind & {
-	symbol: "RemoteInteractiveLogonPrivilege"
+RemoteInteractiveLogonRight: types.#Kind & {
+	symbol: "RemoteInteractiveLogonRight"
 	schema: "active_directory"
 }
 
@@ -928,6 +1120,11 @@ SyncLAPSPassword: types.#Kind & {
 
 WriteAccountRestrictions: types.#Kind & {
 	symbol: "WriteAccountRestrictions"
+	schema: "active_directory"
+}
+
+WriteGPLink: types.#Kind & {
+	symbol: "WriteGPLink"
 	schema: "active_directory"
 }
 
@@ -998,16 +1195,6 @@ TrustedForNTAuth: types.#Kind & {
 
 EnterpriseCAFor: types.#Kind & {
 	symbol: "EnterpriseCAFor"
-	schema: "active_directory"
-}
-
-CanAbuseUPNCertMapping: types.#Kind & {
-	symbol: "CanAbuseUPNCertMapping"
-	schema: "active_directory"
-}
-
-CanAbuseWeakCertBinding: types.#Kind & {
-	symbol: "CanAbuseWeakCertBinding"
 	schema: "active_directory"
 }
 
@@ -1101,6 +1288,11 @@ ADCSESC13: types.#Kind & {
 	schema: "active_directory"
 }
 
+SyncedToEntraUser: types.#Kind & {
+	symbol: "SyncedToEntraUser"
+	schema: "active_directory"
+}
+
 // Relationship Kinds
 RelationshipKinds: [
 	Owns,
@@ -1137,9 +1329,10 @@ RelationshipKinds: [
 	AddKeyCredentialLink,
 	LocalToComputer,
 	MemberOfLocalGroup,
-	RemoteInteractiveLogonPrivilege,
+	RemoteInteractiveLogonRight,
 	SyncLAPSPassword,
 	WriteAccountRestrictions,
+	WriteGPLink,
 	RootCAFor,
 	DCFor,
 	PublishedTo,
@@ -1153,8 +1346,6 @@ RelationshipKinds: [
 	NTAuthStoreFor,
 	TrustedForNTAuth,
 	EnterpriseCAFor,
-	CanAbuseUPNCertMapping,
-	CanAbuseWeakCertBinding,
 	IssuedSignedBy,
 	GoldenCert,
 	EnrollOnBehalfOf,
@@ -1171,7 +1362,8 @@ RelationshipKinds: [
 	ADCSESC9b,
 	ADCSESC10a,
 	ADCSESC10b,
-	ADCSESC13
+	ADCSESC13,
+	SyncedToEntraUser,
 ]
 
 // ACL Relationships
@@ -1194,6 +1386,7 @@ ACLRelationships: [
 	GetChangesAll,
 	GetChangesInFilteredSet,
 	WriteAccountRestrictions,
+	WriteGPLink,
 	SyncLAPSPassword,
 	DCSync,
 	ManageCertificates,
@@ -1236,6 +1429,7 @@ PathfindingRelationships: [
 	AddKeyCredentialLink,
 	SyncLAPSPassword,
 	WriteAccountRestrictions,
+	WriteGPLink,
 	GoldenCert,
 	ADCSESC1,
 	ADCSESC3,
@@ -1249,7 +1443,8 @@ PathfindingRelationships: [
 	ADCSESC10a,
 	ADCSESC10b,
 	ADCSESC13,
-	DCFor
+	DCFor,
+	SyncedToEntraUser,
 ]
 
 EdgeCompositionRelationships: [

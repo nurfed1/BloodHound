@@ -21,11 +21,12 @@ package database
 import (
 	"context"
 	"fmt"
+	"time"
+
 	"github.com/specterops/bloodhound/src/services/agi"
 	"github.com/specterops/bloodhound/src/services/dataquality"
 	"github.com/specterops/bloodhound/src/services/fileupload"
 	"github.com/specterops/bloodhound/src/services/ingest"
-	"time"
 
 	"github.com/gofrs/uuid"
 	"github.com/specterops/bloodhound/errors"
@@ -40,6 +41,11 @@ import (
 
 const (
 	ErrNotFound = errors.Error("entity not found")
+)
+
+var (
+	ErrDuplicateAGName = errors.New("duplicate asset group name")
+	ErrDuplicateAGTag  = errors.New("duplicate asset group tag")
 )
 
 func IsUnexpectedDatabaseError(err error) bool {
@@ -75,10 +81,10 @@ type Database interface {
 	GetAssetGroupSelector(ctx context.Context, id int32) (model.AssetGroupSelector, error)
 	DeleteAssetGroupSelector(ctx context.Context, selector model.AssetGroupSelector) error
 	UpdateAssetGroupSelectors(ctx context.Context, assetGroup model.AssetGroup, selectorSpecs []model.AssetGroupSelectorSpec, systemSelector bool) (model.UpdatedAssetGroupSelectors, error)
+	DeleteAssetGroupSelectorsForAssetGroups(ctx context.Context, assetGroupIds []int) error
 
 	Wipe(ctx context.Context) error
 	Migrate(ctx context.Context) error
-	RequiresMigration(ctx context.Context) (bool, error)
 	CreateInstallation(ctx context.Context) (model.Installation, error)
 	GetInstallation(ctx context.Context) (model.Installation, error)
 	HasInstallation(ctx context.Context) (bool, error)
@@ -125,10 +131,14 @@ type Database interface {
 	GetAllSAMLProviders(ctx context.Context) (model.SAMLProviders, error)
 	GetSAMLProvider(ctx context.Context, id int32) (model.SAMLProvider, error)
 	GetSAMLProviderUsers(ctx context.Context, id int32) (model.Users, error)
-	DeleteSAMLProvider(ctx context.Context, samlProvider model.SAMLProvider) error
+
+	// SSO
+	SSOProviderData
+	OIDCProviderData
 
 	// Sessions
 	CreateUserSession(ctx context.Context, userSession model.UserSession) (model.UserSession, error)
+	SetUserSessionFlag(ctx context.Context, userSession *model.UserSession, key model.SessionFlagKey, state bool) error
 	LookupActiveSessionsByUser(ctx context.Context, user model.User) ([]model.UserSession, error)
 	EndUserSession(ctx context.Context, userSession model.UserSession)
 	GetUserSession(ctx context.Context, id int64) (model.UserSession, error)
@@ -146,11 +156,17 @@ type Database interface {
 	fileupload.FileUploadData
 
 	// Saved Queries
-	ListSavedQueries(ctx context.Context, userID uuid.UUID, order string, filter model.SQLFilter, skip, limit int) (model.SavedQueries, int, error)
-	CreateSavedQuery(ctx context.Context, userID uuid.UUID, name string, query string) (model.SavedQuery, error)
-	DeleteSavedQuery(ctx context.Context, id int) error
-	SavedQueryBelongsToUser(ctx context.Context, userID uuid.UUID, savedQueryID int) (bool, error)
-	DeleteAssetGroupSelectorsForAssetGroups(ctx context.Context, assetGroupIds []int) error
+	SavedQueriesData
+
+	// Saved Queries Permissions
+	SavedQueriesPermissionsData
+
+	// Analysis Request
+	AnalysisRequestData
+
+	// Datapipe Status
+	SetDatapipeStatus(ctx context.Context, status model.DatapipeStatus, updateAnalysisTime bool) error
+	GetDatapipeStatus(ctx context.Context) (model.DatapipeStatusWrapper, error)
 }
 
 type BloodhoundDB struct {
@@ -227,13 +243,9 @@ func (s *BloodhoundDB) Wipe(ctx context.Context) error {
 	})
 }
 
-func (s *BloodhoundDB) RequiresMigration(ctx context.Context) (bool, error) {
-	return migration.NewMigrator(s.db.WithContext(ctx)).RequiresMigration()
-}
-
 func (s *BloodhoundDB) Migrate(ctx context.Context) error {
 	// Run the migrator
-	if err := migration.NewMigrator(s.db.WithContext(ctx)).Migrate(); err != nil {
+	if err := migration.NewMigrator(s.db.WithContext(ctx)).ExecuteStepwiseMigrations(); err != nil {
 		log.Errorf("Error during SQL database migration phase: %v", err)
 		return err
 	}

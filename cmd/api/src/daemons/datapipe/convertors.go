@@ -49,7 +49,7 @@ func convertComputerData(computer ein.Computer, converted *ConvertedData) {
 		}
 
 		if userRight.Privilege == ein.UserRightRemoteInteractiveLogon {
-			converted.RelProps = append(converted.RelProps, ein.ParseUserRightData(userRight, computer, ad.RemoteInteractiveLogonPrivilege)...)
+			converted.RelProps = append(converted.RelProps, ein.ParseUserRightData(userRight, computer, ad.RemoteInteractiveLogonRight)...)
 			baseNodeProp.PropertyMap[ad.HasURA.String()] = true
 		}
 	}
@@ -196,14 +196,20 @@ func convertCertTemplateData(certtemplate ein.CertTemplate, converted *Converted
 func convertIssuancePolicy(issuancePolicy ein.IssuancePolicy, converted *ConvertedData) {
 	props := ein.ConvertObjectToNode(issuancePolicy.IngestBase, ad.IssuancePolicy)
 	if issuancePolicy.GroupLink.ObjectIdentifier != "" {
-		converted.RelProps = append(converted.RelProps, ein.IngestibleRelationship{
-			Source:     issuancePolicy.ObjectIdentifier,
-			SourceType: ad.IssuancePolicy,
-			TargetType: issuancePolicy.GroupLink.Kind(),
-			Target:     issuancePolicy.GroupLink.ObjectIdentifier,
-			RelProps:   map[string]any{"isacl": false},
-			RelType:    ad.OIDGroupLink,
-		})
+		converted.RelProps = append(converted.RelProps, ein.NewIngestibleRelationship(
+			ein.IngestibleSource{
+				Source:     issuancePolicy.ObjectIdentifier,
+				SourceType: ad.IssuancePolicy,
+			},
+			ein.IngestibleTarget{
+				Target:     issuancePolicy.GroupLink.ObjectIdentifier,
+				TargetType: issuancePolicy.GroupLink.Kind(),
+			},
+			ein.IngestibleRel{
+				RelProps: map[string]any{"isacl": false},
+				RelType:  ad.OIDGroupLink,
+			},
+		))
 		props.PropertyMap[ad.GroupLinkID.String()] = issuancePolicy.GroupLink.ObjectIdentifier
 	}
 

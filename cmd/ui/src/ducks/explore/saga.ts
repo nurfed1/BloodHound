@@ -112,7 +112,7 @@ function* runSearchQuery(payload: SearchRequest): SagaIterator {
 function* runPathfindingQuery(payload: PathfindingRequest): SagaIterator {
     const standardExclusions = [
         ActiveDirectoryRelationshipKind.LocalToComputer,
-        ActiveDirectoryRelationshipKind.RemoteInteractiveLogonPrivilege,
+        ActiveDirectoryRelationshipKind.RemoteInteractiveLogonRight,
         ActiveDirectoryRelationshipKind.MemberOfLocalGroup,
         ActiveDirectoryRelationshipKind.GetChanges,
         ActiveDirectoryRelationshipKind.GetChangesAll,
@@ -203,7 +203,7 @@ function* runCypherSearchQuery(payload: CypherQueryRequest): SagaIterator {
             );
         } else if (resultNodesAreEmpty && resultEdgesAreEmpty) {
             yield put(putGraphData({}));
-            yield put(addSnackbar('No results match your criteria', 'cypherSearchEmptyResponse'));
+            yield put(addSnackbar('Command completed successfully', 'cypherSuccessResponse'));
         } else {
             yield put(saveResponseForExport(data));
 
@@ -215,6 +215,9 @@ function* runCypherSearchQuery(payload: CypherQueryRequest): SagaIterator {
 
         if (error?.response?.status === 400) {
             yield put(addSnackbar(apiErrorMessage, 'cypherSearchBadRequest'));
+        } else if (error?.response?.status === 404) {
+            yield put(putGraphData({}));
+            yield put(addSnackbar('No results match your criteria', 'cypherSearchEmptyResponse'));
         } else {
             if (apiErrorMessage) {
                 yield put(addSnackbar(`${apiErrorMessage}`, 'cypherSearch'));
